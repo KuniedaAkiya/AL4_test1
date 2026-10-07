@@ -11,6 +11,7 @@
 
 using namespace KamataEngine;
 
+// デストラクタ
 Player::~Player() {
 	for (int32_t i = 0; i < kMaxHP; ++i) {
 		delete hpSprites_[i];
@@ -19,6 +20,7 @@ Player::~Player() {
 	delete mpBarGaugeSprite_;
 }
 
+// 初期化
 void Player::Initialize(Model* model, Model* modelAttack, Camera* camera, uint32_t playerHandle, const Vector3& position) {
 	assert(model);
 	assert(modelAttack);
@@ -62,10 +64,16 @@ void Player::Initialize(Model* model, Model* modelAttack, Camera* camera, uint32
 	soundHandleDamage_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Damage.mp3");
 	soundHandleJustGuard_ = Audio::GetInstance()->LoadWave("Audio/SE_Parry_Success.mp3");
 	soundHandleJump_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Jump.mp3");
+	soundHandleCounter_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Counter.mp3");
 }
 
+// 更新
 void Player::Update() {
 	isJustGuardSuccess_ = false;
+
+	if (counterTimer_ > 0.0f) {
+		counterTimer_ = std::max(counterTimer_ - 1.0f / 60.0f, 0.0f);
+	}
 
 	if (isInvincible_) {
 		invincibleTimer_ += 1.0f / 60.0f;
@@ -132,6 +140,7 @@ void Player::Update() {
 	}
 }
 
+// 描画
 void Player::Draw() {
 	if (isDead_)
 		return;
@@ -145,6 +154,7 @@ void Player::Draw() {
 	}
 }
 
+// UI描画
 void Player::DrawUI() {
 	for (int32_t i = 0; i < kMaxHP; ++i) {
 		if (hpSprites_[i]) {
@@ -160,6 +170,7 @@ void Player::DrawUI() {
 	}
 }
 
+// ワールド座標を取得
 Vector3 Player::GetWorldPosition() const {
 	Vector3 worldPos;
 	worldPos.x = worldTransform_.matWorld_.m[3][0];
@@ -168,6 +179,7 @@ Vector3 Player::GetWorldPosition() const {
 	return worldPos;
 }
 
+// AABBを取得
 AABB Player::GetAABB() {
 	Vector3 worldPos = GetWorldPosition();
 	AABB aabb;
@@ -176,6 +188,7 @@ AABB Player::GetAABB() {
 	return aabb;
 }
 
+// 敵との当たり判定
 void Player::OnCollision(const Enemy* /*enemy*/) {
 	if (IsJustGuardActive()) {
 		OnJustGuardSuccess();
@@ -187,6 +200,7 @@ void Player::OnCollision(const Enemy* /*enemy*/) {
 	TakeDamage();
 }
 
+// シールド敵との当たり判定
 void Player::OnCollision(const ShieldEnemy* /*shieldEnemy*/) {
 	if (IsJustGuardActive()) {
 		OnJustGuardSuccess();
@@ -198,6 +212,7 @@ void Player::OnCollision(const ShieldEnemy* /*shieldEnemy*/) {
 	TakeDamage();
 }
 
+// ボスとの当たり判定
 void Player::OnCollision(const Boss* /*boss*/) {
 	if (IsJustGuardActive()) {
 		OnJustGuardSuccess();
@@ -209,6 +224,7 @@ void Player::OnCollision(const Boss* /*boss*/) {
 	TakeDamage();
 }
 
+// 移動入力処理
 void Player::inputMove() {
 	if (onGround_) {
 		if (Input::GetInstance()->PushKey(DIK_RIGHT) || Input::GetInstance()->PushKey(DIK_LEFT)) {
@@ -250,6 +266,7 @@ void Player::inputMove() {
 	}
 }
 
+// 角の座標を取得
 Vector3 Player::CornerPosition(const Vector3& center, Corner corner) {
 	Vector3 offsetTable[kNumCorners]{
 	    {+kWidth / 2.0f, -kHeight / 2.0f, 0.0f},
@@ -264,6 +281,7 @@ Vector3 Player::CornerPosition(const Vector3& center, Corner corner) {
 	return result;
 }
 
+// マップとの当たり判定
 void Player::CheckMapCollision(CollisionMapInfo& info) {
 	TopCollision(info);
 	BottomCollision(info);
@@ -271,6 +289,7 @@ void Player::CheckMapCollision(CollisionMapInfo& info) {
 	LeftCollision(info);
 }
 
+// 上方向の当たり判定
 void Player::TopCollision(CollisionMapInfo& info) {
 	if (info.move.y <= 0)
 		return;
@@ -316,6 +335,7 @@ void Player::TopCollision(CollisionMapInfo& info) {
 	}
 }
 
+// 下方向の当たり判定
 void Player::BottomCollision(CollisionMapInfo& info) {
 	if (info.move.y >= 0)
 		return;
@@ -363,6 +383,7 @@ void Player::BottomCollision(CollisionMapInfo& info) {
 	}
 }
 
+// 左方向の当たり判定
 void Player::LeftCollision(CollisionMapInfo& info) {
 	if (info.move.x >= 0)
 		return;
@@ -445,20 +466,24 @@ void Player::RightCollision(CollisionMapInfo& info) {
 	}
 }
 
+// 位置更新
 void Player::PositionUpDate(const CollisionMapInfo& info) { worldTransform_.translation_ += info.move; }
 
+// 上方向の当たり判定
 void Player::CeilingCollision(const CollisionMapInfo& info) {
 	if (info.isHitTop) {
 		velocity_.y = 0;
 	}
 }
 
+// 左右方向の当たり判定
 void Player::WallCollision(const CollisionMapInfo& info) {
 	if (info.isHitWall) {
 		velocity_.x *= (1.0f - kAttenuationWall);
 	}
 }
 
+// 接地状態の変更
 void Player::ChangeGroundingState(const CollisionMapInfo& info) {
 	if (onGround_) {
 		if (velocity_.y > 0.0f) {
@@ -495,8 +520,10 @@ void Player::ChangeGroundingState(const CollisionMapInfo& info) {
 	}
 }
 
+// 行動状態の初期化
 void Player::BehaviorRootInitialize() {}
 
+// 行動状態の更新
 void Player::BehaviorRootUpData() {
 	inputMove();
 
@@ -506,7 +533,9 @@ void Player::BehaviorRootUpData() {
 		coyoteTimer_ -= 1.0f / 60.0f;
 	}
 
-	if ((onGround_ || coyoteTimer_ > 0.0f) && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+	if (counterTimer_ > 0.0f && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+		RequestCounterAttack();
+	} else if ((onGround_ || coyoteTimer_ > 0.0f) && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
 		behaviorRequest_ = Behavior::kAttack;
 		coyoteTimer_ = 0.0f;
 	} else if (Input::GetInstance()->PushKey(DIK_LCONTROL) && mp_ > 0.0f) {
@@ -537,24 +566,60 @@ void Player::BehaviorRootUpData() {
 	worldTransform_.TransferMatrix();
 }
 
+// 攻撃行動状態の初期化
 void Player::BehaviorAttackInitialize() {
 	velocity_ = {0.0f, 0.0f, 0.0f};
 	attackPhase_ = AttackPhase::kCharge;
 	attackParameter_ = 0.0f;
 	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
+
+	// カウンター要求の反映
+	isCounterAttack_ = isCounterRequested_;
+	isCounterRequested_ = false;
+
+	// 次段へ繋ぐ場合以外は1段目から
+	if (!isComboContinue_ || isCounterAttack_) {
+		comboStep_ = 0;
+	}
+	isComboContinue_ = false;
+	comboInputBuffered_ = false;
+	attackHit_ = false;
+
+	if (isCounterAttack_) {
+		isAttackUp_ = true;
+		Audio::GetInstance()->PlayWave(soundHandleCounter_, false, kSEVolume);
+	}
 }
 
+// 攻撃行動状態の更新
 void Player::BehaviorAttackUpData() {
 	Vector3 attackVelocity{};
 	attackParameter_ += 1.0f / 60.0f;
 
+	// 現在の攻撃のパラメータ（通常は段ごと、カウンターは専用値）
+	float chargeTime = kComboChargeTimes[comboStep_];
+	float dashTime = kComboDashTimes[comboStep_];
+	float afterglowTime = kComboAfterglowTimes[comboStep_];
+	float dashSpeed = kComboDashSpeeds[comboStep_];
+	if (isCounterAttack_) {
+		chargeTime = kCounterChargeTime;
+		dashTime = kCounterDashTime;
+		afterglowTime = kCounterAfterglowTime;
+		dashSpeed = kCounterDashSpeed;
+	}
+
+	// 攻撃中のSPACEは次段の先行入力として受け付ける
+	if (!isCounterAttack_ && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+		comboInputBuffered_ = true;
+	}
+
 	switch (attackPhase_) {
 	case AttackPhase::kCharge: {
-		float t = std::clamp(attackParameter_ / kChargeTime, 0.0f, 1.0f);
+		float t = std::clamp(attackParameter_ / chargeTime, 0.0f, 1.0f);
 		worldTransform_.scale_.z = EaseOut(1.0f, 0.3f, t);
 		worldTransform_.scale_.y = EaseOut(1.0f, 1.6f, t);
 
-		if (attackParameter_ >= kChargeTime) {
+		if (attackParameter_ >= chargeTime) {
 			attackPhase_ = AttackPhase::kDash;
 			attackParameter_ = 0.0f;
 		}
@@ -562,17 +627,17 @@ void Player::BehaviorAttackUpData() {
 	}
 
 	case AttackPhase::kDash: {
-		float t = std::clamp(attackParameter_ / kDashTime, 0.0f, 1.0f);
+		float t = std::clamp(attackParameter_ / dashTime, 0.0f, 1.0f);
 		worldTransform_.scale_.z = EaseOut(0.3f, 1.3f, t);
 		worldTransform_.scale_.y = EaseIn(1.6f, 0.7f, t);
 
 		if (lrDirection_ == LRDirection::kRight) {
-			attackVelocity.x = kDashSpeed;
+			attackVelocity.x = dashSpeed;
 		} else {
-			attackVelocity.x = -kDashSpeed;
+			attackVelocity.x = -dashSpeed;
 		}
 
-		if (attackParameter_ >= kDashTime) {
+		if (attackParameter_ >= dashTime) {
 			attackPhase_ = AttackPhase::kAfterglow;
 			attackParameter_ = 0.0f;
 		}
@@ -580,13 +645,31 @@ void Player::BehaviorAttackUpData() {
 	}
 
 	case AttackPhase::kAfterglow: {
-		float t = std::clamp(attackParameter_ / kAfterglowTime, 0.0f, 1.0f);
+		float t = std::clamp(attackParameter_ / afterglowTime, 0.0f, 1.0f);
 		worldTransform_.scale_.z = EaseOut(1.3f, 1.0f, t);
 		worldTransform_.scale_.y = EaseIn(0.7f, 1.0f, t);
 
-		if (attackParameter_ >= kAfterglowTime) {
+		if (attackParameter_ >= afterglowTime) {
 			attackParameter_ = 0.0f;
-			behaviorRequest_ = Behavior::kRoot;
+
+			if (!isCounterAttack_ && comboInputBuffered_ && comboStep_ + 1 < kMaxComboStep) {
+				// 次段へ繋ぐ（入力された方向へ向き直れる）
+				Input* input = Input::GetInstance();
+				if (input->PushKey(DIK_RIGHT)) {
+					lrDirection_ = LRDirection::kRight;
+				} else if (input->PushKey(DIK_LEFT)) {
+					lrDirection_ = LRDirection::kLeft;
+				}
+				float destinationRotationYTable[] = {std::numbers::pi_v<float> / 2.0f, std::numbers::pi_v<float> * 3.0f / 2.0f};
+				worldTransform_.rotation_.y = destinationRotationYTable[static_cast<uint32_t>(lrDirection_)];
+				turnTimer_ = 0.0f;
+
+				comboStep_++;
+				isComboContinue_ = true;
+				behaviorRequest_ = Behavior::kAttack;
+			} else {
+				behaviorRequest_ = Behavior::kRoot;
+			}
 		}
 		break;
 	}
@@ -612,10 +695,38 @@ void Player::BehaviorAttackUpData() {
 	worldTransform_.TransferMatrix();
 }
 
+// 攻撃力を取得
+int32_t Player::GetAttackDamage() const {
+	int32_t damage = 1;
+	if (behavior_ == Behavior::kAttack) {
+		if (isCounterAttack_) {
+			damage = kCounterDamage;
+		} else if (comboStep_ == kMaxComboStep - 1) {
+			damage = kFinisherDamage;
+		}
+	}
+	// ジャストガード後の強化攻撃は最低でも2ダメージ
+	if (isAttackUp_) {
+		damage *= 2;
+	}
+	return damage;
+}
+
+// カウンター攻撃要求
+void Player::RequestCounterAttack() {
+	isCounterRequested_ = true;
+	counterTimer_ = 0.0f;
+	coyoteTimer_ = 0.0f;
+	behaviorRequest_ = Behavior::kAttack;
+}
+
+// 攻撃中かどうかを取得
 bool Player::IsAttack() const { return behavior_ == Behavior::kAttack; }
 
+// ノックバック要求
 void Player::RequestKnockback() { isKnockbackRequested_ = true; }
 
+// ノックバック行動状態の初期化
 void Player::BehaviorKnockbackInitialize() {
 	knockbackTimer_ = 0.0f;
 	knockbackPhase_ = KnockbackPhase::kFly;
@@ -624,6 +735,7 @@ void Player::BehaviorKnockbackInitialize() {
 	velocity_.x = kKnockbackSpeed * direction;
 }
 
+// ノックバック行動状態の更新
 void Player::BehaviorKnockbackUpData() {
 	knockbackTimer_ += 1.0f / 60.0f;
 
@@ -657,11 +769,13 @@ void Player::BehaviorKnockbackUpData() {
 	worldTransform_.TransferMatrix();
 }
 
+// ガード行動状態の初期化
 void Player::BehaviorGuardInitialize() {
 	velocity_.x = 0.0f;
 	guardTimer_ = 0.0f;
 }
 
+// ガード行動状態の更新
 void Player::BehaviorGuardUpdate() {
 	guardTimer_ += 1.0f / 60.0f;
 
@@ -673,6 +787,11 @@ void Player::BehaviorGuardUpdate() {
 	if (mp_ <= 0.0f) {
 		mp_ = 0.0f;
 		behaviorRequest_ = Behavior::kRoot;
+	}
+
+	// ジャストガード直後はSPACEでカウンター攻撃へ
+	if (counterTimer_ > 0.0f && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+		RequestCounterAttack();
 	}
 
 	velocity_.x = 0.0f;
@@ -693,8 +812,10 @@ void Player::BehaviorGuardUpdate() {
 	worldTransform_.TransferMatrix();
 }
 
+// ジャストガードが有効かどうかを取得
 bool Player::IsJustGuardActive() const { return behavior_ == Behavior::kGuard && guardTimer_ <= kJustGuardWindowTime; }
 
+// ジャストガード成功時の処理
 void Player::OnJustGuardSuccess() {
 	isJustGuardSuccess_ = true;
 	Audio::GetInstance()->PlayWave(soundHandleJustGuard_, false, kSEVolume);
@@ -703,14 +824,17 @@ void Player::OnJustGuardSuccess() {
 	invincibleTimer_ = -kJustGuardBonusInvincibleTime;
 	mp_ = std::min(mp_ + kJustGuardMpReward, kMaxMP);
 	isAttackUp_ = true;
+	counterTimer_ = kCounterWindowTime;
 
 	if (gameScene_) {
 		gameScene_->CreateGuardEffect(GetWorldPosition());
 	}
 }
 
+// ダメージを受ける
 void Player::TakeDamage() {
 	hp_--;
+	counterTimer_ = 0.0f;
 	Audio::GetInstance()->PlayWave(soundHandleDamage_, false, kSEVolume);
 
 	if (hp_ <= 0) {

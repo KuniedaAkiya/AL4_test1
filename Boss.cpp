@@ -7,11 +7,13 @@
 #include <cstdlib>
 #include <numbers>
 
+// デストラクタ
 Boss::~Boss() {
 	delete hpBarFrameSprite_;
 	delete hpBarGaugeSprite_;
 }
 
+// 初期化
 void Boss::Initialize(Model* model, Camera* camera, uint32_t textureHandle, const Vector3& position) {
 	model_ = model;
 	camera_ = camera;
@@ -51,8 +53,10 @@ void Boss::Initialize(Model* model, Camera* camera, uint32_t textureHandle, cons
 	worldTransform_.TransferMatrix();
 }
 
+// ボスの位置を、動ける範囲の中に収める
 void Boss::ClampPosition() { worldTransform_.translation_.x = std::clamp(worldTransform_.translation_.x, minX_, maxX_); }
 
+// 毎フレームの更新（行動の切り替えと実行、HPバーの更新）
 void Boss::Update() {
 	if (damageCooldown_ > 0.0f) {
 		damageCooldown_ -= 1.0f / 60.0f;
@@ -100,11 +104,13 @@ void Boss::Update() {
 	}
 
 	if (hpBarGaugeSprite_) {
+		// HPの残り割合（0.0〜1.0）。HPバーの長さに使う
 		float rate = std::clamp(static_cast<float>(hp_) / static_cast<float>(kMaxHP), 0.0f, 1.0f);
 		hpBarGaugeSprite_->SetSize({kHpBarWidth * rate, kHpBarHeight});
 	}
 }
 
+// ボスの3Dモデルを描画する
 void Boss::Draw() {
 	if (isDead_)
 		return;
@@ -113,6 +119,7 @@ void Boss::Draw() {
 	}
 }
 
+// ボスのHPバーを描画する
 void Boss::DrawUI() {
 	if (isDead_)
 		return;
@@ -122,6 +129,7 @@ void Boss::DrawUI() {
 		hpBarFrameSprite_->Draw();
 }
 
+// ボスのワールド座標を取得する
 Vector3 Boss::GetWorldPosition() const {
 	Vector3 worldPos;
 	worldPos.x = worldTransform_.matWorld_.m[3][0];
@@ -130,6 +138,7 @@ Vector3 Boss::GetWorldPosition() const {
 	return worldPos;
 }
 
+// 当たり判定用の箱（AABB）を取得する
 AABB Boss::GetAABB() {
 	Vector3 worldPos = GetWorldPosition();
 	AABB aabb;
@@ -138,6 +147,7 @@ AABB Boss::GetAABB() {
 	return aabb;
 }
 
+// ダメージを受ける（効果音・HPの減少・復活/撃破への切り替え）
 void Boss::TakeDamage(int32_t damage, bool isAttackUp) {
 	if (isAttackUp) {
 		Audio::GetInstance()->PlayWave(soundHandleCounter_, false, kSEVolume);
@@ -159,23 +169,29 @@ void Boss::TakeDamage(int32_t damage, bool isAttackUp) {
 	}
 }
 
+// プレイヤーとぶつかったときの処理（プレイヤーが攻撃中ならダメージを受ける）
 void Boss::OnCollision(const Player* player) {
 	if (behavior_ == Behavior::kDeath || behavior_ == Behavior::kRevive) {
 		return;
 	}
 
-	if (!player->IsAttack() || damageCooldown_ > 0.0f) {
+	// 1回の攻撃（コンボ1段・カウンター）につき1ヒットだけ
+	if (!player->IsAttack() || damageCooldown_ > 0.0f || player->HasAttackHit()) {
 		return;
 	}
 
+	// ジャストガード後の強化攻撃かどうか
 	bool isAttackUp = player->IsAttackUp();
-	int32_t damage = isAttackUp ? 2 : 1;
+	// プレイヤーの今の攻撃のダメージ量
+	int32_t damage = player->GetAttackDamage();
+	const_cast<Player*>(player)->MarkAttackHit();
 
 	if (isAttackUp) {
 		const_cast<Player*>(player)->ClearAttackUp();
 	}
 
 	if (gameScene_) {
+		// ヒットエフェクトを出す位置（ボスとプレイヤーの中間）
 		Vector3 effectPos = (GetWorldPosition() + player->GetWorldPosition()) / 2.0f;
 		gameScene_->CreateHitEffect(effectPos);
 	}
@@ -183,24 +199,30 @@ void Boss::OnCollision(const Player* player) {
 	TakeDamage(damage, isAttackUp);
 }
 
+// 待機状態に入るときの初期化
 void Boss::BehaviorIdleInitialize() {
 	velocity_ = {};
 	behaviorTimer_ = 0.0f;
 }
 
+// 待機状態の更新（プレイヤーの方を向き、時間が来たら攻撃を選ぶ）
 void Boss::BehaviorIdleUpdate() {
 	behaviorTimer_ += 1.0f / 60.0f;
 
 	if (target_) {
+		// プレイヤーのいる方向を向くための目標の向き（Y軸回転）
 		float targetRotationY = (target_->GetWorldPosition().x < worldTransform_.translation_.x) ? -std::numbers::pi_v<float> / 2.0f : std::numbers::pi_v<float> / 2.0f;
 
+		// 向きを変える速さ（大きいほど素早く向き直る）
 		constexpr float kTurnSpeed = 0.15f;
 		worldTransform_.rotation_.y = std::lerp(worldTransform_.rotation_.y, targetRotationY, kTurnSpeed);
 	}
 
+	// 待機時間（HPが半分以下か復活後は、半分に短くして攻撃を速くする）
 	float currentIdleTime = (hp_ <= kMaxHP / 2 || hasRevived_) ? (kIdleTime * 0.5f) : kIdleTime;
 
 	if (behaviorTimer_ >= currentIdleTime) {
+		// 突進とジャンプをランダムに選ぶ
 		bool doDash = (std::rand() % 2 == 0);
 		behaviorRequest_ = doDash ? Behavior::kAttackDash : Behavior::kAttackJump;
 	}
@@ -211,6 +233,7 @@ void Boss::BehaviorIdleUpdate() {
 	worldTransform_.TransferMatrix();
 }
 
+// 突進攻撃に入るときの初期化（突進する向きを決める）
 void Boss::BehaviorAttackDashInitialize() {
 	behaviorTimer_ = 0.0f;
 	velocity_ = {};
@@ -224,6 +247,7 @@ void Boss::BehaviorAttackDashInitialize() {
 	}
 }
 
+// 突進攻撃の更新（溜め→突進→待機へ戻る）
 void Boss::BehaviorAttackDashUpdate() {
 	behaviorTimer_ += 1.0f / 60.0f;
 
@@ -250,11 +274,14 @@ void Boss::BehaviorAttackDashUpdate() {
 	worldTransform_.TransferMatrix();
 }
 
+// ジャンプ攻撃に入るときの初期化
 void Boss::BehaviorAttackJumpInitialize() {
 	behaviorTimer_ = 0.0f;
 	velocity_ = {};
 	if (target_) {
+		// プレイヤーまでの横方向の距離
 		float diffX = target_->GetWorldPosition().x - worldTransform_.translation_.x;
+		// ジャンプ中の横方向の速度（距離を割った値）。プレイヤーの位置に近づくように決める
 		jumpTargetX_ = diffX / 36.0f;
 
 		if (diffX < 0.0f) {
@@ -265,6 +292,7 @@ void Boss::BehaviorAttackJumpInitialize() {
 	}
 }
 
+// ジャンプ攻撃の更新（溜め→ジャンプ→着地して待機へ戻る）
 void Boss::BehaviorAttackJumpUpdate() {
 	behaviorTimer_ += 1.0f / 60.0f;
 
@@ -297,6 +325,7 @@ void Boss::BehaviorAttackJumpUpdate() {
 	worldTransform_.TransferMatrix();
 }
 
+// 復活演出に入るときの初期化
 void Boss::BehaviorReviveInitialize() {
 	behaviorTimer_ = 0.0f;
 	velocity_ = {};
@@ -305,10 +334,12 @@ void Boss::BehaviorReviveInitialize() {
 	Audio::GetInstance()->PlayWave(soundHandleFormChange_, false, kSEVolume);
 }
 
+// 復活演出の更新
 void Boss::BehaviorReviveUpdate() {
 	behaviorTimer_ += 1.0f / 60.0f;
 
 	worldTransform_.rotation_.z = std::sin(behaviorTimer_ * 50.0f) * 0.15f;
+	// 復活中に体が脈打つように、拡大縮小する倍率
 	float pulse = 1.0f + std::sin(behaviorTimer_ * 30.0f) * 0.15f;
 	worldTransform_.scale_ = {kModelScale * pulse, kModelScale * pulse, kModelScale * pulse};
 
@@ -325,13 +356,16 @@ void Boss::BehaviorReviveUpdate() {
 	worldTransform_.TransferMatrix();
 }
 
+// 撃破演出に入るときの初期化
 void Boss::BehaviorDeathInitialize() {
 	deathTimer_ = 0.0f;
 	velocity_ = {};
 }
 
+// 撃破演出の更新
 void Boss::BehaviorDeathUpdate() {
 	deathTimer_ += 1.0f / 60.0f;
+	// 撃破演出の進み具合
 	float t = std::clamp(deathTimer_ / kDeathTime, 0.0f, 1.0f);
 
 	worldTransform_.rotation_.y += 0.3f;

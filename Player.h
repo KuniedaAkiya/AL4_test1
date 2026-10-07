@@ -93,6 +93,15 @@ public:
 	bool IsJustGuardActive() const;
 	bool WasJustGuardSuccessful() const { return isJustGuardSuccess_; }
 	bool IsAttackUp() const { return isAttackUp_; }
+	// 現在のコンボ段数（0始まり）
+	int32_t GetComboStep() const { return comboStep_; }
+	// カウンター攻撃中かどうか
+	bool IsCounterAttack() const { return behavior_ == Behavior::kAttack && isCounterAttack_; }
+	// 今の攻撃のダメージ量（通常1、コンボ最終段2、カウンター3。ジャスガ後の強化は最低2）
+	int32_t GetAttackDamage() const;
+	// 1回の攻撃（1段）につき1ヒットだけにするための判定
+	bool HasAttackHit() const { return attackHit_; }
+	void MarkAttackHit() { attackHit_ = true; }
 	void ClearAttackUp() { isAttackUp_ = false; }
 	void SetGameScene(GameScene* gameScene) { gameScene_ = gameScene; }
 
@@ -115,6 +124,30 @@ private:
 	static inline const float kJustGuardBonusInvincibleTime = 0.6f;
 	static inline const float kJustGuardMpReward = 20.0f;
 	bool isAttackUp_ = false;
+
+	// ==== コンボ攻撃 ====
+	static inline const int32_t kMaxComboStep = 3;
+	// 段ごとの [溜め, ダッシュ, 後隙] 時間と速度
+	static inline const float kComboChargeTimes[kMaxComboStep] = {0.1f, 0.05f, 0.12f};
+	static inline const float kComboDashTimes[kMaxComboStep] = {0.2f, 0.15f, 0.25f};
+	static inline const float kComboAfterglowTimes[kMaxComboStep] = {0.1f, 0.12f, 0.2f};
+	static inline const float kComboDashSpeeds[kMaxComboStep] = {0.5f, 0.4f, 0.7f};
+	static inline const int32_t kFinisherDamage = 2;
+	int32_t comboStep_ = 0;
+	bool comboInputBuffered_ = false; // 攻撃中に押された次段入力
+	bool isComboContinue_ = false;    // 次段へ繋ぐ再突入かどうか
+	bool attackHit_ = false;          // この1段の攻撃でヒット済みか
+
+	// ==== カウンター攻撃 ====
+	static inline const float kCounterWindowTime = 1.0f; // ジャスガ成功後に反撃できる時間
+	static inline const float kCounterChargeTime = 0.08f;
+	static inline const float kCounterDashTime = 0.3f;
+	static inline const float kCounterAfterglowTime = 0.15f;
+	static inline const float kCounterDashSpeed = 0.8f;
+	static inline const int32_t kCounterDamage = 3;
+	float counterTimer_ = 0.0f;
+	bool isCounterRequested_ = false;
+	bool isCounterAttack_ = false;
 
 	bool isKnockbackRequested_ = false;
 	float knockbackTimer_ = 0.0f;
@@ -200,4 +233,5 @@ private:
 
 	void TakeDamage();
 	void OnJustGuardSuccess();
+	void RequestCounterAttack();
 };
