@@ -121,25 +121,13 @@ private:
 	DeathParticles* deathParticles_ = nullptr;
 
 	// テクスチャハンドル
-	uint32_t textureHandle_ = 0;
-	uint32_t skydomeTextureHandle_ = 0;
 	uint32_t blockTextureHandle_ = 0;
 	uint32_t playerDataHandle_ = 0;
 	uint32_t bossDataHandle_ = 0;
-	uint32_t particleDataHandle_ = 0;
-	uint32_t deathParticleDataHandle_ = 0;
 
 	// --- BGMハンドル ---
 	uint32_t bgmBossHandle_ = 0;
 	uint32_t bgmPlayHandle_ = 0; // 再生中BGMの停止用
-
-	// --- SEハンドル ---
-	uint32_t seBossLandHandle_ = 0;
-	uint32_t seFormChangeHandle_ = 0;
-	uint32_t seParrySuccessHandle_ = 0;
-	uint32_t sePlayerAttackHandle_ = 0;
-	uint32_t sePlayerCounterHandle_ = 0;
-	uint32_t sePlayerDamageHandle_ = 0;
 
 	// 3Dモデル
 	Model* modelSkydome_ = nullptr;
@@ -149,8 +137,5 @@ private:
 	Model* deathParticleModel_ = nullptr;
 	Model* modelAttack_ = nullptr;
 	Model* bossModel_ = nullptr;
-
-	// ワールドトランスフォーム
-	WorldTransform worldTransform_{};
 	std::vector<std::vector<WorldTransform*>> worldTransformBlocks_;
 };

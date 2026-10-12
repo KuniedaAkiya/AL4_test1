@@ -2,7 +2,7 @@
 
 /// <summary>
 /// 全シーン共通のインターフェース
-/// Title / Tutorial / Play(GameScene) / GameOver / GameClear は
+/// Title / Play(GameScene) / GameOver / GameClear は
 /// すべてこれを継承して実装する。
 /// main.cpp側はこの型としてしかシーンを扱わないため、
 /// シーンの種類が増えてもmain.cpp側の変更は最小限で済む。
@@ -13,7 +13,6 @@ public:
 	enum class Next {
 		kNone,      // 遷移なし（このシーンを継続する）
 		kTitle,     // タイトルシーンへ
-		kTutorial,  // チュートリアルシーンへ
 		kPlay,      // プレイ（ゲーム本編）シーンへ
 		kGameOver,  // ゲームオーバーシーンへ
 		kGameClear, // ゲームクリアシーンへ

@@ -20,6 +20,7 @@ private:
 
 	// 音声ハンドル ★追記
 	uint32_t soundHandleBGM_ = 0;
+	uint32_t bgmPlayHandle_ = 0; // 再生中BGM停止用
 
 	// カメラ
 	Camera camera_{};

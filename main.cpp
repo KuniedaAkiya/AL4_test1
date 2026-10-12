@@ -4,7 +4,6 @@
 #include "IScene.h"
 #include "KamataEngine.h"
 #include "TitleScene.h"
-#include "TutorialScene.h"
 #include <Windows.h>
 
 using namespace KamataEngine;
@@ -71,8 +70,6 @@ IScene* CreateScene(IScene::Next next) {
 	switch (next) {
 	case IScene::Next::kTitle:
 		return new TitleScene();
-	case IScene::Next::kTutorial:
-		return new TutorialScene();
 	case IScene::Next::kPlay:
 		return new GameScene();
 	case IScene::Next::kGameOver:

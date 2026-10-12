@@ -27,7 +27,7 @@ public:
 
 	enum class AttackPhase {
 		kCharge,
-		kDash,
+		kSwing,
 		kAfterglow,
 	};
 
@@ -97,17 +97,20 @@ public:
 	int32_t GetComboStep() const { return comboStep_; }
 	// カウンター攻撃中かどうか
 	bool IsCounterAttack() const { return behavior_ == Behavior::kAttack && isCounterAttack_; }
-	// 今の攻撃のダメージ量（通常1、コンボ最終段2、カウンター3。ジャスガ後の強化は最低2）
+	// 今の攻撃のダメージ量（通常1、コンボ最終段2、カウンター3。ジャスガ後の強化は2倍）
 	int32_t GetAttackDamage() const;
 	// 1回の攻撃（1段）につき1ヒットだけにするための判定
 	bool HasAttackHit() const { return attackHit_; }
 	void MarkAttackHit() { attackHit_ = true; }
 	void ClearAttackUp() { isAttackUp_ = false; }
 	void SetGameScene(GameScene* gameScene) { gameScene_ = gameScene; }
+	// 剣の当たり判定が有効か（振っている間だけ true）
+	bool IsSwordActive() const { return behavior_ == Behavior::kAttack && attackPhase_ == AttackPhase::kSwing; }
+	// 剣の当たり判定
+	AABB GetSwordAABB() const;
 
 private:
 	// ==== 音の大きさ設定 ====
-	static inline const float kBGMVolume = 0.2f;
 	static inline const float kSEVolume = 0.4f;
 
 	enum class KnockbackPhase {
@@ -118,6 +121,7 @@ private:
 
 	float guardTimer_ = 0.0f;
 	bool isJustGuardSuccess_ = false;
+	bool hasJustGuarded_ = false;
 	GameScene* gameScene_ = nullptr;
 
 	static inline const float kJustGuardWindowTime = 0.15f;
@@ -125,13 +129,21 @@ private:
 	static inline const float kJustGuardMpReward = 20.0f;
 	bool isAttackUp_ = false;
 
+	// ==== 剣 ====
+	static inline const float kSwordLength = 1.6f;                      // 刀身の長さ（モデルの先端 Y=1.6）
+	static inline const float kSwordThickness = 0.3f;                   // 判定の太さ
+	static inline const Vector3 kSwordPivotOffset = {0.3f, 0.1f, 0.0f}; // 持ち手の位置（右向き基準）
+	static inline const float kSwordRestDegrees = -30.0f;               // 構える前の角度
+
 	// ==== コンボ攻撃 ====
 	static inline const int32_t kMaxComboStep = 3;
-	// 段ごとの [溜め, ダッシュ, 後隙] 時間と速度
-	static inline const float kComboChargeTimes[kMaxComboStep] = {0.1f, 0.05f, 0.12f};
-	static inline const float kComboDashTimes[kMaxComboStep] = {0.2f, 0.15f, 0.25f};
+	static inline const float kComboChargeTimes[kMaxComboStep] = {0.08f, 0.05f, 0.12f};
+	static inline const float kComboSwingTimes[kMaxComboStep] = {0.12f, 0.12f, 0.2f};
 	static inline const float kComboAfterglowTimes[kMaxComboStep] = {0.1f, 0.12f, 0.2f};
-	static inline const float kComboDashSpeeds[kMaxComboStep] = {0.5f, 0.4f, 0.7f};
+	static inline const float kComboLungeSpeeds[kMaxComboStep] = {0.08f, 0.08f, 0.15f}; // 踏み込み
+	// 剣の角度（度）。0=真上、-90=前方、-180=真下。右向き基準で、左向きは自動で反転
+	static inline const float kSwordStartDegrees[kMaxComboStep] = {40.0f, -140.0f, 60.0f}; // 袈裟斬り → 切り上げ → 大振り
+	static inline const float kSwordEndDegrees[kMaxComboStep] = {-130.0f, 10.0f, -150.0f};
 	static inline const int32_t kFinisherDamage = 2;
 	int32_t comboStep_ = 0;
 	bool comboInputBuffered_ = false; // 攻撃中に押された次段入力
@@ -141,9 +153,11 @@ private:
 	// ==== カウンター攻撃 ====
 	static inline const float kCounterWindowTime = 1.0f; // ジャスガ成功後に反撃できる時間
 	static inline const float kCounterChargeTime = 0.08f;
-	static inline const float kCounterDashTime = 0.3f;
+	static inline const float kCounterSwingTime = 0.25f;
 	static inline const float kCounterAfterglowTime = 0.15f;
-	static inline const float kCounterDashSpeed = 0.8f;
+	static inline const float kCounterLungeSpeed = 0.2f;
+	static inline const float kCounterSwordStartDegree = 90.0f; // 背中側から
+	static inline const float kCounterSwordEndDegree = -180.0f; // 一回転近く振り抜く
 	static inline const int32_t kCounterDamage = 3;
 	float counterTimer_ = 0.0f;
 	bool isCounterRequested_ = false;
@@ -194,10 +208,6 @@ private:
 	static inline const float kJumpAcceleration = 0.8f;
 
 	float attackParameter_ = 0.0f;
-	static inline const float kChargeTime = 0.1f;
-	static inline const float kDashTime = 0.2f;
-	static inline const float kAfterglowTime = 0.1f;
-	static inline const float kDashSpeed = 0.5f;
 
 	static inline const float kWidth = 0.8f;
 	static inline const float kHeight = 0.8f;
@@ -226,7 +236,6 @@ private:
 	static inline const float kCoyoteTime = 0.1f;
 
 	uint32_t soundHandleCounter_ = 0;
-	uint32_t soundHandleAttack_ = 0;
 	uint32_t soundHandleDamage_ = 0;
 	uint32_t soundHandleJustGuard_ = 0;
 	uint32_t soundHandleJump_ = 0;
@@ -234,4 +243,11 @@ private:
 	void TakeDamage();
 	void OnJustGuardSuccess();
 	void RequestCounterAttack();
+	void UpdateSwordTransform(float swordDegrees);
+	// 敵・ボスとの接触時の共通処理
+	void HandleEnemyContact();
+	// 現在の向き（lrDirection_）へ即座に向き直る
+	void FaceCurrentDirection();
+	// ワールド行列の更新と転送
+	void UpdateWorldMatrix();
 };

@@ -4,7 +4,7 @@
 using namespace KamataEngine;
 
 TitleScene::~TitleScene() {
-	Audio::GetInstance()->StopWave(soundHandleBGM_);
+	Audio::GetInstance()->StopWave(bgmPlayHandle_);
 	delete titleFontModel_;
 	delete spaceFontModel_;
 }
@@ -28,13 +28,13 @@ void TitleScene::Initialize() {
 
 	// BGMの読み込みとループ再生（第2引数を true にするとループ)
 	soundHandleBGM_ = Audio::GetInstance()->LoadWave("Audio/BGM_Title.mp3");
-	Audio::GetInstance()->PlayWave(soundHandleBGM_, true);
+	bgmPlayHandle_ = Audio::GetInstance()->PlayWave(soundHandleBGM_, true);
 }
 
 void TitleScene::Update() {
 	// SPACEキーで決定
 	if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
-		nextScene_ = IScene::Next::kTutorial; // または kPlay
+		nextScene_ = IScene::Next::kPlay;
 		finished_ = true;
 	}
 
