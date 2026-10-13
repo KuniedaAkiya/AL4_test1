@@ -181,7 +181,6 @@
     <ClCompile Include="ShieldEnemy.cpp" />
     <ClCompile Include="Skydome.cpp" />
     <ClCompile Include="TitleScene.cpp" />
-    <ClCompile Include="Tutorialscene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\TerrainPS.hlsl">
@@ -299,7 +298,6 @@
     <ClInclude Include="ShieldEnemy.h" />
     <ClInclude Include="Skydome.h" />
     <ClInclude Include="TitleScene.h" />
-    <ClInclude Include="Tutorialscene.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

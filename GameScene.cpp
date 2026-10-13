@@ -4,7 +4,7 @@
 using namespace KamataEngine;
 
 GameScene::~GameScene() {
-	// ★ シーン終了（破棄）時に再生中および保持しているBGMを停止
+	// シーン終了（破棄）時に再生中および保持しているBGMを停止
 	Audio::GetInstance()->StopWave(bgmPlayHandle_);
 	Audio::GetInstance()->StopWave(bgmBossHandle_);
 
@@ -13,6 +13,7 @@ GameScene::~GameScene() {
 	delete boss_;
 	delete bossModel_;
 	delete deathParticleModel_;
+	delete particleModel_;
 	delete modelAttack_;
 	delete player_;
 	delete fade_;
@@ -48,13 +49,6 @@ void GameScene::Initialize() {
 	// 1. サウンドデータの読み込み
 	bgmBossHandle_ = audio->LoadWave("Audio/BGM_Boss_Phase1.mp3");
 
-	seBossLandHandle_ = audio->LoadWave("Audio/SE_Boss_Land.mp3");
-	seFormChangeHandle_ = audio->LoadWave("Audio/SE_FormChange.mp3");
-	seParrySuccessHandle_ = audio->LoadWave("Audio/SE_Parry_Success.mp3");
-	sePlayerAttackHandle_ = audio->LoadWave("Audio/SE_Player_Attack.mp3");
-	sePlayerCounterHandle_ = audio->LoadWave("Audio/SE_Player_Counter.mp3");
-	sePlayerDamageHandle_ = audio->LoadWave("Audio/SE_Player_Damage.mp3");
-
 	// 2. ボス戦フェーズ1のBGMを再生（第3引数は音量 0.0f～1.0f）
 	bgmPlayHandle_ = audio->PlayWave(bgmBossHandle_, true, 0.4f);
 
@@ -70,7 +64,7 @@ void GameScene::Initialize() {
 	blockModel_ = Model::CreateFromOBJ("block", true);
 	particleModel_ = Model::CreateFromOBJ("particle", true);
 	deathParticleModel_ = Model::CreateFromOBJ("deathParticle", true);
-	modelAttack_ = Model::CreateFromOBJ("hit_effect", true);
+	modelAttack_ = Model::CreateFromOBJ("Sword", true);
 
 	// マップチップフィールドの生成
 	mapChipField_ = new MapChipField();
@@ -97,10 +91,6 @@ void GameScene::Initialize() {
 	player_->SetmapChipField(mapChipField_);
 	player_->SetGameScene(this);
 
-	// デスパーティクル（仮の生成処理）
-	deathParticles_ = new DeathParticles;
-	deathParticles_->Initialize(deathParticleModel_, &camera_, playerPosition);
-
 	boss_ = new Boss();
 	Vector3 bossPosition = mapChipField_->GetMapChipPositionByIndex(40, 18); // 好きな出現位置に調整
 	boss_->Initialize(bossModel_, &camera_, bossDataHandle_, bossPosition);
@@ -126,9 +116,6 @@ void GameScene::Initialize() {
 	cameraController_->Initialize(&camera_);
 	cameraController_->SetTarget(player_);
 	cameraController_->Reset();
-
-	// カメラの移動範囲を設定
-	CameraController::Rect movableArea;
 
 	// ポーズメニューの初期化
 	pauseMenu_.Initialize();
@@ -314,9 +301,26 @@ void GameScene::CheckAllCollisions() {
 
 	if (boss_ && !boss_->IsCollisionDisabled()) {
 		AABB aabbBoss = boss_->GetAABB();
+
+		// 体当たり（攻撃中の体当たりはダメージにしない。攻撃は剣で行う）
 		if (IsCollisionAABB(aabb1, aabbBoss)) {
 			player_->OnCollision(boss_);
-			boss_->OnCollision(player_);
+			// ガード中は敵の体に押し出される
+			if (player_->IsGuard()) {
+				player_->PushOutFrom(aabbBoss);
+			}
+
+			if (!player_->IsAttack()) {
+				boss_->OnCollision(player_);
+			}
+		}
+
+		// 剣の判定（振っている間だけ。1回の攻撃で1ヒット）
+		if (player_->IsSwordActive() && !player_->HasAttackHit()) {
+			AABB swordAabb = player_->GetSwordAABB();
+			if (IsCollisionAABB(swordAabb, aabbBoss)) {
+				boss_->OnCollision(player_);
+			}
 		}
 	}
 #pragma endregion
@@ -334,13 +338,13 @@ void GameScene::ChangePhase() {
 	case Phase::kPlay:
 		// 自キャラがデス状態
 		if (player_->isDead()) {
-			// 死亡演出フェーズに切り替え
 			phase_ = Phase::kDeath;
 
-			// 自キャラの座標を取得
-			const Vector3& deathParticlesPosition = player_->GetWorldPosition();
+			const Vector3 deathParticlesPosition = player_->GetWorldPosition();
 
-			// 自キャラの座標にデスパーティクルを発生、初期化
+			// 死んだ瞬間にデスパーティクルを生成
+			delete deathParticles_;
+			deathParticles_ = new DeathParticles;
 			deathParticles_->Initialize(deathParticleModel_, &camera_, deathParticlesPosition);
 		} else if (isCleared_) {
 			// クリア条件を満たしたらクリア演出フェーズへ

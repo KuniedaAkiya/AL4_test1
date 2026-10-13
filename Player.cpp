@@ -7,10 +7,12 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <numbers>
 
 using namespace KamataEngine;
 
+// デストラクタ
 Player::~Player() {
 	for (int32_t i = 0; i < kMaxHP; ++i) {
 		delete hpSprites_[i];
@@ -19,6 +21,7 @@ Player::~Player() {
 	delete mpBarGaugeSprite_;
 }
 
+// 初期化
 void Player::Initialize(Model* model, Model* modelAttack, Camera* camera, uint32_t playerHandle, const Vector3& position) {
 	assert(model);
 	assert(modelAttack);
@@ -32,10 +35,10 @@ void Player::Initialize(Model* model, Model* modelAttack, Camera* camera, uint32
 	worldTransform_.translation_ = position;
 	worldTransform_.rotation_.y = std::numbers::pi_v<float> / 2.0f;
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldMatrix();
 
 	worldTransformAttack_.Initialize();
+	objectColor_.Initialize();
 	velocity_ = {0.0f, 0.0f, 0.0f};
 
 	hp_ = kMaxHP;
@@ -62,10 +65,16 @@ void Player::Initialize(Model* model, Model* modelAttack, Camera* camera, uint32
 	soundHandleDamage_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Damage.mp3");
 	soundHandleJustGuard_ = Audio::GetInstance()->LoadWave("Audio/SE_Parry_Success.mp3");
 	soundHandleJump_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Jump.mp3");
+	soundHandleCounter_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Counter.mp3");
 }
 
+// 更新
 void Player::Update() {
 	isJustGuardSuccess_ = false;
+
+	if (counterTimer_ > 0.0f) {
+		counterTimer_ = std::max(counterTimer_ - 1.0f / 60.0f, 0.0f);
+	}
 
 	if (isInvincible_) {
 		invincibleTimer_ += 1.0f / 60.0f;
@@ -94,9 +103,7 @@ void Player::Update() {
 		behaviorRequest_ = Behavior::kUnknown;
 
 		if (behavior_ != Behavior::kRoot && turnTimer_ > 0.0f) {
-			float destinationRotationYTable[] = {std::numbers::pi_v<float> / 2.0f, std::numbers::pi_v<float> * 3.0f / 2.0f};
-			worldTransform_.rotation_.y = destinationRotationYTable[static_cast<uint32_t>(lrDirection_)];
-			turnTimer_ = 0.0f;
+			FaceCurrentDirection();
 		}
 
 		switch (behavior_) {
@@ -113,7 +120,6 @@ void Player::Update() {
 			Player::BehaviorGuardInitialize();
 			break;
 		}
-		behaviorRequest_ = Behavior::kUnknown;
 	}
 
 	switch (behavior_) {
@@ -132,19 +138,32 @@ void Player::Update() {
 	}
 }
 
+// 描画
 void Player::Draw() {
 	if (isDead_)
 		return;
 
-	bool skipDraw = isInvincible_ && (static_cast<int32_t>(invincibleTimer_ * 20.0f) % 2 == 0);
+	// 無敵時間の点滅判定
+	bool skipDrawInvincible = isInvincible_ && (static_cast<int32_t>(invincibleTimer_ * 20.0f) % 2 == 0);
 
-	if (!skipDraw) {
+	// ガード中は白く点滅させる
+	const bool isGuardFlash = (behavior_ == Behavior::kGuard) && (static_cast<int32_t>(guardTimer_ * kGuardFlashSpeed) % 2 == 0);
+	const float brightness = isGuardFlash ? kGuardFlashBrightness : 1.0f;
+	objectColor_.SetColor({brightness, brightness, brightness, 1.0f});
+
+	if (!skipDrawInvincible) {
 		if (playerModel_ && camera_) {
-			playerModel_->Draw(worldTransform_, *camera_);
+			playerModel_->Draw(worldTransform_, *camera_, &objectColor_);
 		}
+	}
+
+	// 剣は攻撃中だけ表示する
+	if (behavior_ == Behavior::kAttack && modelAttack_ && camera_) {
+		modelAttack_->Draw(worldTransformAttack_, *camera_);
 	}
 }
 
+// UI描画
 void Player::DrawUI() {
 	for (int32_t i = 0; i < kMaxHP; ++i) {
 		if (hpSprites_[i]) {
@@ -160,6 +179,7 @@ void Player::DrawUI() {
 	}
 }
 
+// ワールド座標を取得
 Vector3 Player::GetWorldPosition() const {
 	Vector3 worldPos;
 	worldPos.x = worldTransform_.matWorld_.m[3][0];
@@ -168,6 +188,7 @@ Vector3 Player::GetWorldPosition() const {
 	return worldPos;
 }
 
+// AABBを取得
 AABB Player::GetAABB() {
 	Vector3 worldPos = GetWorldPosition();
 	AABB aabb;
@@ -176,39 +197,41 @@ AABB Player::GetAABB() {
 	return aabb;
 }
 
-void Player::OnCollision(const Enemy* /*enemy*/) {
+// 敵との当たり判定
+void Player::OnCollision(const Enemy* /*enemy*/) { HandleEnemyContact(); }
+
+// シールド敵との当たり判定
+void Player::OnCollision(const ShieldEnemy* /*shieldEnemy*/) { HandleEnemyContact(); }
+
+// ボスとの当たり判定
+void Player::OnCollision(const Boss* /*boss*/) { HandleEnemyContact(); }
+
+// 敵・ボスとの接触時の共通処理
+void Player::HandleEnemyContact() {
 	if (IsJustGuardActive()) {
 		OnJustGuardSuccess();
 		return;
 	}
-	if (IsAttack() || behavior_ == Behavior::kKnockback || behavior_ == Behavior::kGuard || isInvincible_) {
+	if (IsCounterAttack() || behavior_ == Behavior::kKnockback || behavior_ == Behavior::kGuard || isInvincible_) {
 		return;
 	}
 	TakeDamage();
 }
 
-void Player::OnCollision(const ShieldEnemy* /*shieldEnemy*/) {
-	if (IsJustGuardActive()) {
-		OnJustGuardSuccess();
-		return;
-	}
-	if (IsAttack() || behavior_ == Behavior::kKnockback || behavior_ == Behavior::kGuard || isInvincible_) {
-		return;
-	}
-	TakeDamage();
+// 現在の向きへ即座に向き直る
+void Player::FaceCurrentDirection() {
+	const float destinationRotationYTable[] = {std::numbers::pi_v<float> / 2.0f, std::numbers::pi_v<float> * 3.0f / 2.0f};
+	worldTransform_.rotation_.y = destinationRotationYTable[static_cast<uint32_t>(lrDirection_)];
+	turnTimer_ = 0.0f;
 }
 
-void Player::OnCollision(const Boss* /*boss*/) {
-	if (IsJustGuardActive()) {
-		OnJustGuardSuccess();
-		return;
-	}
-	if (IsAttack() || behavior_ == Behavior::kKnockback || behavior_ == Behavior::kGuard || isInvincible_) {
-		return;
-	}
-	TakeDamage();
+// ワールド行列の更新と転送
+void Player::UpdateWorldMatrix() {
+	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
+	worldTransform_.TransferMatrix();
 }
 
+// 移動入力処理
 void Player::inputMove() {
 	if (onGround_) {
 		if (Input::GetInstance()->PushKey(DIK_RIGHT) || Input::GetInstance()->PushKey(DIK_LEFT)) {
@@ -250,6 +273,7 @@ void Player::inputMove() {
 	}
 }
 
+// 角の座標を取得
 Vector3 Player::CornerPosition(const Vector3& center, Corner corner) {
 	Vector3 offsetTable[kNumCorners]{
 	    {+kWidth / 2.0f, -kHeight / 2.0f, 0.0f},
@@ -264,6 +288,7 @@ Vector3 Player::CornerPosition(const Vector3& center, Corner corner) {
 	return result;
 }
 
+// マップとの当たり判定
 void Player::CheckMapCollision(CollisionMapInfo& info) {
 	TopCollision(info);
 	BottomCollision(info);
@@ -271,6 +296,7 @@ void Player::CheckMapCollision(CollisionMapInfo& info) {
 	LeftCollision(info);
 }
 
+// 上方向の当たり判定
 void Player::TopCollision(CollisionMapInfo& info) {
 	if (info.move.y <= 0)
 		return;
@@ -316,6 +342,7 @@ void Player::TopCollision(CollisionMapInfo& info) {
 	}
 }
 
+// 下方向の当たり判定
 void Player::BottomCollision(CollisionMapInfo& info) {
 	if (info.move.y >= 0)
 		return;
@@ -363,6 +390,7 @@ void Player::BottomCollision(CollisionMapInfo& info) {
 	}
 }
 
+// 左方向の当たり判定
 void Player::LeftCollision(CollisionMapInfo& info) {
 	if (info.move.x >= 0)
 		return;
@@ -445,20 +473,24 @@ void Player::RightCollision(CollisionMapInfo& info) {
 	}
 }
 
+// 位置更新
 void Player::PositionUpDate(const CollisionMapInfo& info) { worldTransform_.translation_ += info.move; }
 
+// 上方向の当たり判定
 void Player::CeilingCollision(const CollisionMapInfo& info) {
 	if (info.isHitTop) {
 		velocity_.y = 0;
 	}
 }
 
+// 左右方向の当たり判定
 void Player::WallCollision(const CollisionMapInfo& info) {
 	if (info.isHitWall) {
 		velocity_.x *= (1.0f - kAttenuationWall);
 	}
 }
 
+// 接地状態の変更
 void Player::ChangeGroundingState(const CollisionMapInfo& info) {
 	if (onGround_) {
 		if (velocity_.y > 0.0f) {
@@ -495,8 +527,10 @@ void Player::ChangeGroundingState(const CollisionMapInfo& info) {
 	}
 }
 
+// 行動状態の初期化
 void Player::BehaviorRootInitialize() {}
 
+// 行動状態の更新
 void Player::BehaviorRootUpData() {
 	inputMove();
 
@@ -506,7 +540,9 @@ void Player::BehaviorRootUpData() {
 		coyoteTimer_ -= 1.0f / 60.0f;
 	}
 
-	if ((onGround_ || coyoteTimer_ > 0.0f) && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+	if (counterTimer_ > 0.0f && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+		RequestCounterAttack();
+	} else if ((onGround_ || coyoteTimer_ > 0.0f) && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
 		behaviorRequest_ = Behavior::kAttack;
 		coyoteTimer_ = 0.0f;
 	} else if (Input::GetInstance()->PushKey(DIK_LCONTROL) && mp_ > 0.0f) {
@@ -533,46 +569,95 @@ void Player::BehaviorRootUpData() {
 		worldTransform_.rotation_.y = Lerp(turnFirstRotationY_, destinationRotationY, turnTimer_, kTimeTurn);
 	}
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldMatrix();
 }
 
+// 攻撃行動状態の初期化
 void Player::BehaviorAttackInitialize() {
 	velocity_ = {0.0f, 0.0f, 0.0f};
 	attackPhase_ = AttackPhase::kCharge;
 	attackParameter_ = 0.0f;
 	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
+
+	// カウンター要求の反映
+	isCounterAttack_ = isCounterRequested_;
+	isCounterRequested_ = false;
+
+	// 次段へ繋ぐ場合以外は1段目から
+	if (!isComboContinue_ || isCounterAttack_) {
+		comboStep_ = 0;
+	}
+	isComboContinue_ = false;
+	comboInputBuffered_ = false;
+	attackHit_ = false;
+
+	if (isCounterAttack_) {
+		isAttackUp_ = true;
+		Audio::GetInstance()->PlayWave(soundHandleCounter_, false, kSEVolume);
+	}
 }
 
+// 攻撃行動状態の更新
 void Player::BehaviorAttackUpData() {
 	Vector3 attackVelocity{};
 	attackParameter_ += 1.0f / 60.0f;
 
+	// 現在の攻撃のパラメータ（通常は段ごと、カウンターは専用値）
+	float chargeTime = kComboChargeTimes[comboStep_];
+	float swingTime = kComboSwingTimes[comboStep_];
+	float afterglowTime = kComboAfterglowTimes[comboStep_];
+	float lungeSpeed = kComboLungeSpeeds[comboStep_];
+	float startDeg = kSwordStartDegrees[comboStep_];
+	float endDeg = kSwordEndDegrees[comboStep_];
+	if (isCounterAttack_) {
+		chargeTime = kCounterChargeTime;
+		swingTime = kCounterSwingTime;
+		afterglowTime = kCounterAfterglowTime;
+		lungeSpeed = kCounterLungeSpeed;
+		startDeg = kCounterSwordDegree;
+		endDeg = kCounterSwordDegree;
+	}
+
+	// 突きの時の剣の前後位置（通常攻撃は0のまま）
+	float swordReach = 0.0f;
+
+	// 攻撃中のSPACEは次段の先行入力として受け付ける
+	if (!isCounterAttack_ && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+		comboInputBuffered_ = true;
+	}
+
+	float swordDeg = startDeg;
+
 	switch (attackPhase_) {
 	case AttackPhase::kCharge: {
-		float t = std::clamp(attackParameter_ / kChargeTime, 0.0f, 1.0f);
-		worldTransform_.scale_.z = EaseOut(1.0f, 0.3f, t);
-		worldTransform_.scale_.y = EaseOut(1.0f, 1.6f, t);
+		// 構え：剣を振りかぶる
+		float t = std::clamp(attackParameter_ / chargeTime, 0.0f, 1.0f);
+		swordDeg = EaseOut(kSwordRestDegrees, startDeg, t);
 
-		if (attackParameter_ >= kChargeTime) {
-			attackPhase_ = AttackPhase::kDash;
+		if (isCounterAttack_) {
+			swordReach = EaseOut(0.0f, -kCounterPullBack, t);
+		}
+
+		if (attackParameter_ >= chargeTime) {
+			attackPhase_ = AttackPhase::kSwing;
 			attackParameter_ = 0.0f;
 		}
 		break;
 	}
 
-	case AttackPhase::kDash: {
-		float t = std::clamp(attackParameter_ / kDashTime, 0.0f, 1.0f);
-		worldTransform_.scale_.z = EaseOut(0.3f, 1.3f, t);
-		worldTransform_.scale_.y = EaseIn(1.6f, 0.7f, t);
+	case AttackPhase::kSwing: {
+		// 振る：最初が速く終わりが遅い（EaseOut）と、斬った感じが出る
+		float t = std::clamp(attackParameter_ / swingTime, 0.0f, 1.0f);
+		swordDeg = EaseOut(startDeg, endDeg, t);
 
-		if (lrDirection_ == LRDirection::kRight) {
-			attackVelocity.x = kDashSpeed;
-		} else {
-			attackVelocity.x = -kDashSpeed;
+		if (isCounterAttack_) {
+			swordReach = EaseOut(-kCounterPullBack, kCounterReach, t);
 		}
 
-		if (attackParameter_ >= kDashTime) {
+		// 少しだけ前へ踏み込む
+		attackVelocity.x = (lrDirection_ == LRDirection::kRight) ? lungeSpeed : -lungeSpeed;
+
+		if (attackParameter_ >= swingTime) {
 			attackPhase_ = AttackPhase::kAfterglow;
 			attackParameter_ = 0.0f;
 		}
@@ -580,13 +665,38 @@ void Player::BehaviorAttackUpData() {
 	}
 
 	case AttackPhase::kAfterglow: {
-		float t = std::clamp(attackParameter_ / kAfterglowTime, 0.0f, 1.0f);
-		worldTransform_.scale_.z = EaseOut(1.3f, 1.0f, t);
-		worldTransform_.scale_.y = EaseIn(0.7f, 1.0f, t);
+		// 後隙：振り終わりの角度で止まる
+		swordDeg = endDeg;
 
-		if (attackParameter_ >= kAfterglowTime) {
+		if (isCounterAttack_) {
+			swordReach = kCounterReach;
+		}
+
+		if (attackParameter_ >= afterglowTime) {
 			attackParameter_ = 0.0f;
-			behaviorRequest_ = Behavior::kRoot;
+
+			// 終わった後隙でダメージを受けないように無敵
+			if (isCounterAttack_) {
+				isInvincible_ = true;
+				invincibleTimer_ = kInvincibleTime - kCounterEndInvincibleTime;
+			}
+
+			if (!isCounterAttack_ && comboInputBuffered_ && comboStep_ + 1 < kMaxComboStep) {
+				// 次段へ繋ぐ（入力された方向へ向き直れる）
+				Input* input = Input::GetInstance();
+				if (input->PushKey(DIK_RIGHT)) {
+					lrDirection_ = LRDirection::kRight;
+				} else if (input->PushKey(DIK_LEFT)) {
+					lrDirection_ = LRDirection::kLeft;
+				}
+				FaceCurrentDirection();
+
+				comboStep_++;
+				isComboContinue_ = true;
+				behaviorRequest_ = Behavior::kAttack;
+			} else {
+				behaviorRequest_ = Behavior::kRoot;
+			}
 		}
 		break;
 	}
@@ -598,25 +708,101 @@ void Player::BehaviorAttackUpData() {
 	CheckMapCollision(collisionMapInfo);
 	PositionUpDate(collisionMapInfo);
 
-	if (collisionMapInfo.isHitWall) {
-		attackVelocity.x = 0.0f;
-	}
+	// 自機の位置が決まってから剣を配置する
+	UpdateSwordTransform(swordDeg);
 
-	worldTransformAttack_.translation_ = worldTransform_.translation_;
-	worldTransformAttack_.rotation_ = worldTransform_.rotation_;
+	UpdateWorldMatrix();
+
+	UpdateSwordTransform(swordDeg, swordReach);
+}
+
+// 攻撃力を取得
+int32_t Player::GetAttackDamage() const {
+	int32_t damage = 1;
+	if (behavior_ == Behavior::kAttack) {
+		if (isCounterAttack_) {
+			damage = kCounterDamage;
+		} else if (comboStep_ == kMaxComboStep - 1) {
+			damage = kFinisherDamage;
+		}
+	}
+	// ジャストガード後の強化攻撃はダメージ2倍
+	if (isAttackUp_) {
+		damage *= 2;
+	}
+	return damage;
+}
+
+// 剣の位置と角度を更新する
+void Player::UpdateSwordTransform(float swordDegrees, float reach) {
+	const float dir = (lrDirection_ == LRDirection::kRight) ? 1.0f : -1.0f;
+
+	// 左向きは、角度と持ち手の位置を左右反転する
+	const float yOffset = kSwordPivotOffset.y + (IsCounterAttack() ? kCounterSwordYOffset : 0.0f);
+	worldTransformAttack_.translation_ = {worldTransform_.translation_.x + (kSwordPivotOffset.x + reach) * dir, worldTransform_.translation_.y + yOffset, worldTransform_.translation_.z};
+	worldTransformAttack_.rotation_ = {0.0f, 0.0f, swordDegrees * std::numbers::pi_v<float> / 180.0f * dir};
 
 	worldTransformAttack_.matWorld_ = MakeAffineMatrix(worldTransformAttack_.scale_, worldTransformAttack_.rotation_, worldTransformAttack_.translation_);
 	worldTransformAttack_.TransferMatrix();
-
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
 }
 
+// 剣の当たり判定（持ち手と剣先を囲むAABB）
+AABB Player::GetSwordAABB() const {
+	const Vector3& pivot = worldTransformAttack_.translation_;
+	const float angle = worldTransformAttack_.rotation_.z;
+
+	// Z回転で、刀身（+Y方向）が指す先
+	Vector3 tip = {pivot.x - std::sin(angle) * kSwordLength, pivot.y + std::cos(angle) * kSwordLength, pivot.z};
+
+	const float half = kSwordThickness / 2.0f;
+	AABB aabb;
+	aabb.min = {std::min(pivot.x, tip.x) - half, std::min(pivot.y, tip.y) - half, pivot.z - kWidth / 2.0f};
+	aabb.max = {std::max(pivot.x, tip.x) + half, std::max(pivot.y, tip.y) + half, pivot.z + kWidth / 2.0f};
+	return aabb;
+}
+
+// 他の物体のAABBと重なっている分だけ横に押し出される
+void Player::PushOutFrom(const AABB& other) {
+	const AABB self = GetAABB();
+	const float selfCenterX = (self.min.x + self.max.x) * 0.5f;
+	const float otherCenterX = (other.min.x + other.max.x) * 0.5f;
+
+	// 相手の反対側へ押し出す
+	const float dir = (selfCenterX < otherCenterX) ? -1.0f : 1.0f;
+	const float overlap = (dir < 0.0f) ? (self.max.x - other.min.x) : (other.max.x - self.min.x);
+	if (overlap <= 0.0f) {
+		return;
+	}
+
+	// 壁にめり込まないよう、マップとの当たり判定を通してから移動する
+	CollisionMapInfo collisionMapInfo;
+	collisionMapInfo.move = {dir * overlap, 0.0f, 0.0f};
+	CheckMapCollision(collisionMapInfo);
+	PositionUpDate(collisionMapInfo);
+	UpdateWorldMatrix();
+}
+
+// カウンター攻撃要求
+void Player::RequestCounterAttack() {
+	isCounterRequested_ = true;
+	counterTimer_ = 0.0f;
+	coyoteTimer_ = 0.0f;
+	behaviorRequest_ = Behavior::kAttack;
+}
+
+// 攻撃中かどうかを取得
 bool Player::IsAttack() const { return behavior_ == Behavior::kAttack; }
 
+// ノックバック要求
 void Player::RequestKnockback() { isKnockbackRequested_ = true; }
 
+// ノックバック行動状態の初期化
 void Player::BehaviorKnockbackInitialize() {
+	// ノックバックしたときにコンボ状態を解除する
+	isComboContinue_ = false;
+	comboInputBuffered_ = false;
+	isCounterRequested_ = false;
+
 	knockbackTimer_ = 0.0f;
 	knockbackPhase_ = KnockbackPhase::kFly;
 
@@ -624,6 +810,7 @@ void Player::BehaviorKnockbackInitialize() {
 	velocity_.x = kKnockbackSpeed * direction;
 }
 
+// ノックバック行動状態の更新
 void Player::BehaviorKnockbackUpData() {
 	knockbackTimer_ += 1.0f / 60.0f;
 
@@ -653,15 +840,17 @@ void Player::BehaviorKnockbackUpData() {
 	WallCollision(collisionMapInfo);
 	ChangeGroundingState(collisionMapInfo);
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldMatrix();
 }
 
+// ガード行動状態の初期化
 void Player::BehaviorGuardInitialize() {
 	velocity_.x = 0.0f;
 	guardTimer_ = 0.0f;
+	hasJustGuarded_ = false;
 }
 
+// ガード行動状態の更新
 void Player::BehaviorGuardUpdate() {
 	guardTimer_ += 1.0f / 60.0f;
 
@@ -673,6 +862,11 @@ void Player::BehaviorGuardUpdate() {
 	if (mp_ <= 0.0f) {
 		mp_ = 0.0f;
 		behaviorRequest_ = Behavior::kRoot;
+	}
+
+	// ジャストガード直後はSPACEでカウンター攻撃へ
+	if (counterTimer_ > 0.0f && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+		RequestCounterAttack();
 	}
 
 	velocity_.x = 0.0f;
@@ -689,13 +883,16 @@ void Player::BehaviorGuardUpdate() {
 	WallCollision(collisionMapInfo);
 	ChangeGroundingState(collisionMapInfo);
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldMatrix();
 }
 
-bool Player::IsJustGuardActive() const { return behavior_ == Behavior::kGuard && guardTimer_ <= kJustGuardWindowTime; }
+// ジャストガードが有効かどうかを取得
+bool Player::IsJustGuardActive() const { return behavior_ == Behavior::kGuard && guardTimer_ <= kJustGuardWindowTime && !hasJustGuarded_; }
 
+// ジャストガード成功時の処理
 void Player::OnJustGuardSuccess() {
+	hasJustGuarded_ = true;
+
 	isJustGuardSuccess_ = true;
 	Audio::GetInstance()->PlayWave(soundHandleJustGuard_, false, kSEVolume);
 
@@ -703,14 +900,17 @@ void Player::OnJustGuardSuccess() {
 	invincibleTimer_ = -kJustGuardBonusInvincibleTime;
 	mp_ = std::min(mp_ + kJustGuardMpReward, kMaxMP);
 	isAttackUp_ = true;
+	counterTimer_ = kCounterWindowTime;
 
 	if (gameScene_) {
 		gameScene_->CreateGuardEffect(GetWorldPosition());
 	}
 }
 
+// ダメージを受ける
 void Player::TakeDamage() {
 	hp_--;
+	counterTimer_ = 0.0f;
 	Audio::GetInstance()->PlayWave(soundHandleDamage_, false, kSEVolume);
 
 	if (hp_ <= 0) {
