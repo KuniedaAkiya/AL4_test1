@@ -108,6 +108,8 @@ public:
 	bool IsSwordActive() const { return behavior_ == Behavior::kAttack && attackPhase_ == AttackPhase::kSwing; }
 	// 剣の当たり判定
 	AABB GetSwordAABB() const;
+	// 他の物体（敵・ボス）のAABBと重なっている分だけ横に押し出される
+	void PushOutFrom(const AABB& other);
 
 private:
 	// ==== 音の大きさ設定 ====
@@ -153,11 +155,14 @@ private:
 	// ==== カウンター攻撃 ====
 	static inline const float kCounterWindowTime = 1.0f; // ジャスガ成功後に反撃できる時間
 	static inline const float kCounterChargeTime = 0.08f;
-	static inline const float kCounterSwingTime = 0.25f;
 	static inline const float kCounterAfterglowTime = 0.15f;
-	static inline const float kCounterLungeSpeed = 0.2f;
-	static inline const float kCounterSwordStartDegree = 90.0f; // 背中側から
-	static inline const float kCounterSwordEndDegree = -180.0f; // 一回転近く振り抜く
+	static inline const float kCounterSwingTime = 0.2f;
+	static inline const float kCounterLungeSpeed = 0.45f;       // 突進の速さ（敵を貫通する）
+	static inline const float kCounterSwordDegree = -90.0f;     // 突き：剣を正面に向けたまま
+	static inline const float kCounterPullBack = 0.3f;          // 突く前に剣を引く距離
+	static inline const float kCounterReach = 0.4f;             // 突き出した時の剣の前進量
+	static inline const float kCounterSwordYOffset = -0.2f;     // 突きの時だけ剣を下げる量（マイナスで下がる）
+	static inline const float kCounterEndInvincibleTime = 0.5f; // 突き終わり後の無敵時間
 	static inline const int32_t kCounterDamage = 3;
 	float counterTimer_ = 0.0f;
 	bool isCounterRequested_ = false;
@@ -174,6 +179,11 @@ private:
 	WorldTransform worldTransform_;
 	KamataEngine::Model* modelAttack_ = nullptr;
 	KamataEngine::WorldTransform worldTransformAttack_;
+
+	// ==== ガード中の白点滅 ====
+	ObjectColor objectColor_;
+	static inline const float kGuardFlashSpeed = 15.0f;     // 点滅の速さ
+	static inline const float kGuardFlashBrightness = 5.0f; // 白く見せるための乗算値
 
 	Vector3 velocity_{};
 	Behavior behavior_ = Behavior::kRoot;
@@ -243,7 +253,7 @@ private:
 	void TakeDamage();
 	void OnJustGuardSuccess();
 	void RequestCounterAttack();
-	void UpdateSwordTransform(float swordDegrees);
+	void UpdateSwordTransform(float swordDegrees, float reach = 0.0f);
 	// 敵・ボスとの接触時の共通処理
 	void HandleEnemyContact();
 	// 現在の向き（lrDirection_）へ即座に向き直る

@@ -38,6 +38,7 @@ void Player::Initialize(Model* model, Model* modelAttack, Camera* camera, uint32
 	UpdateWorldMatrix();
 
 	worldTransformAttack_.Initialize();
+	objectColor_.Initialize();
 	velocity_ = {0.0f, 0.0f, 0.0f};
 
 	hp_ = kMaxHP;
@@ -145,12 +146,14 @@ void Player::Draw() {
 	// 無敵時間の点滅判定
 	bool skipDrawInvincible = isInvincible_ && (static_cast<int32_t>(invincibleTimer_ * 20.0f) % 2 == 0);
 
-	// ガード中の点滅判定
-	bool skipDrawGuard = (behavior_ == Behavior::kGuard) && (static_cast<int32_t>(guardTimer_ * 30.0f) % 2 == 0);
+	// ガード中は白く点滅させる
+	const bool isGuardFlash = (behavior_ == Behavior::kGuard) && (static_cast<int32_t>(guardTimer_ * kGuardFlashSpeed) % 2 == 0);
+	const float brightness = isGuardFlash ? kGuardFlashBrightness : 1.0f;
+	objectColor_.SetColor({brightness, brightness, brightness, 1.0f});
 
-	if (!skipDrawInvincible && !skipDrawGuard) {
+	if (!skipDrawInvincible) {
 		if (playerModel_ && camera_) {
-			playerModel_->Draw(worldTransform_, *camera_);
+			playerModel_->Draw(worldTransform_, *camera_, &objectColor_);
 		}
 	}
 
@@ -209,7 +212,7 @@ void Player::HandleEnemyContact() {
 		OnJustGuardSuccess();
 		return;
 	}
-	if (IsAttack() || behavior_ == Behavior::kKnockback || behavior_ == Behavior::kGuard || isInvincible_) {
+	if (IsCounterAttack() || behavior_ == Behavior::kKnockback || behavior_ == Behavior::kGuard || isInvincible_) {
 		return;
 	}
 	TakeDamage();
@@ -611,9 +614,12 @@ void Player::BehaviorAttackUpData() {
 		swingTime = kCounterSwingTime;
 		afterglowTime = kCounterAfterglowTime;
 		lungeSpeed = kCounterLungeSpeed;
-		startDeg = kCounterSwordStartDegree;
-		endDeg = kCounterSwordEndDegree;
+		startDeg = kCounterSwordDegree;
+		endDeg = kCounterSwordDegree;
 	}
+
+	// 突きの時の剣の前後位置（通常攻撃は0のまま）
+	float swordReach = 0.0f;
 
 	// 攻撃中のSPACEは次段の先行入力として受け付ける
 	if (!isCounterAttack_ && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
@@ -628,6 +634,10 @@ void Player::BehaviorAttackUpData() {
 		float t = std::clamp(attackParameter_ / chargeTime, 0.0f, 1.0f);
 		swordDeg = EaseOut(kSwordRestDegrees, startDeg, t);
 
+		if (isCounterAttack_) {
+			swordReach = EaseOut(0.0f, -kCounterPullBack, t);
+		}
+
 		if (attackParameter_ >= chargeTime) {
 			attackPhase_ = AttackPhase::kSwing;
 			attackParameter_ = 0.0f;
@@ -639,6 +649,10 @@ void Player::BehaviorAttackUpData() {
 		// 振る：最初が速く終わりが遅い（EaseOut）と、斬った感じが出る
 		float t = std::clamp(attackParameter_ / swingTime, 0.0f, 1.0f);
 		swordDeg = EaseOut(startDeg, endDeg, t);
+
+		if (isCounterAttack_) {
+			swordReach = EaseOut(-kCounterPullBack, kCounterReach, t);
+		}
 
 		// 少しだけ前へ踏み込む
 		attackVelocity.x = (lrDirection_ == LRDirection::kRight) ? lungeSpeed : -lungeSpeed;
@@ -654,8 +668,18 @@ void Player::BehaviorAttackUpData() {
 		// 後隙：振り終わりの角度で止まる
 		swordDeg = endDeg;
 
+		if (isCounterAttack_) {
+			swordReach = kCounterReach;
+		}
+
 		if (attackParameter_ >= afterglowTime) {
 			attackParameter_ = 0.0f;
+
+			// 終わった後隙でダメージを受けないように無敵
+			if (isCounterAttack_) {
+				isInvincible_ = true;
+				invincibleTimer_ = kInvincibleTime - kCounterEndInvincibleTime;
+			}
 
 			if (!isCounterAttack_ && comboInputBuffered_ && comboStep_ + 1 < kMaxComboStep) {
 				// 次段へ繋ぐ（入力された方向へ向き直れる）
@@ -688,6 +712,8 @@ void Player::BehaviorAttackUpData() {
 	UpdateSwordTransform(swordDeg);
 
 	UpdateWorldMatrix();
+
+	UpdateSwordTransform(swordDeg, swordReach);
 }
 
 // 攻撃力を取得
@@ -708,11 +734,12 @@ int32_t Player::GetAttackDamage() const {
 }
 
 // 剣の位置と角度を更新する
-void Player::UpdateSwordTransform(float swordDegrees) {
+void Player::UpdateSwordTransform(float swordDegrees, float reach) {
 	const float dir = (lrDirection_ == LRDirection::kRight) ? 1.0f : -1.0f;
 
 	// 左向きは、角度と持ち手の位置を左右反転する
-	worldTransformAttack_.translation_ = {worldTransform_.translation_.x + kSwordPivotOffset.x * dir, worldTransform_.translation_.y + kSwordPivotOffset.y, worldTransform_.translation_.z};
+	const float yOffset = kSwordPivotOffset.y + (IsCounterAttack() ? kCounterSwordYOffset : 0.0f);
+	worldTransformAttack_.translation_ = {worldTransform_.translation_.x + (kSwordPivotOffset.x + reach) * dir, worldTransform_.translation_.y + yOffset, worldTransform_.translation_.z};
 	worldTransformAttack_.rotation_ = {0.0f, 0.0f, swordDegrees * std::numbers::pi_v<float> / 180.0f * dir};
 
 	worldTransformAttack_.matWorld_ = MakeAffineMatrix(worldTransformAttack_.scale_, worldTransformAttack_.rotation_, worldTransformAttack_.translation_);
@@ -732,6 +759,27 @@ AABB Player::GetSwordAABB() const {
 	aabb.min = {std::min(pivot.x, tip.x) - half, std::min(pivot.y, tip.y) - half, pivot.z - kWidth / 2.0f};
 	aabb.max = {std::max(pivot.x, tip.x) + half, std::max(pivot.y, tip.y) + half, pivot.z + kWidth / 2.0f};
 	return aabb;
+}
+
+// 他の物体のAABBと重なっている分だけ横に押し出される
+void Player::PushOutFrom(const AABB& other) {
+	const AABB self = GetAABB();
+	const float selfCenterX = (self.min.x + self.max.x) * 0.5f;
+	const float otherCenterX = (other.min.x + other.max.x) * 0.5f;
+
+	// 相手の反対側へ押し出す
+	const float dir = (selfCenterX < otherCenterX) ? -1.0f : 1.0f;
+	const float overlap = (dir < 0.0f) ? (self.max.x - other.min.x) : (other.max.x - self.min.x);
+	if (overlap <= 0.0f) {
+		return;
+	}
+
+	// 壁にめり込まないよう、マップとの当たり判定を通してから移動する
+	CollisionMapInfo collisionMapInfo;
+	collisionMapInfo.move = {dir * overlap, 0.0f, 0.0f};
+	CheckMapCollision(collisionMapInfo);
+	PositionUpDate(collisionMapInfo);
+	UpdateWorldMatrix();
 }
 
 // カウンター攻撃要求

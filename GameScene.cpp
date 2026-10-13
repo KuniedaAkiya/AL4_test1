@@ -4,7 +4,7 @@
 using namespace KamataEngine;
 
 GameScene::~GameScene() {
-	// ★ シーン終了（破棄）時に再生中および保持しているBGMを停止
+	// シーン終了（破棄）時に再生中および保持しているBGMを停止
 	Audio::GetInstance()->StopWave(bgmPlayHandle_);
 	Audio::GetInstance()->StopWave(bgmBossHandle_);
 
@@ -305,6 +305,11 @@ void GameScene::CheckAllCollisions() {
 		// 体当たり（攻撃中の体当たりはダメージにしない。攻撃は剣で行う）
 		if (IsCollisionAABB(aabb1, aabbBoss)) {
 			player_->OnCollision(boss_);
+			// ガード中は敵の体に押し出される
+			if (player_->IsGuard()) {
+				player_->PushOutFrom(aabbBoss);
+			}
+
 			if (!player_->IsAttack()) {
 				boss_->OnCollision(player_);
 			}
