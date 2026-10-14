@@ -5,7 +5,14 @@
 
 using namespace KamataEngine;
 
-enum class MapChipType { kBlank, kBlock };
+enum class MapChipType {
+	kBlank,       // 空白
+	kBlock,       // ブロック
+	kPlayerSpawn, // プレイヤー出現位置
+	kBossSpawn,   // ボス出現位置
+	kWalkEnemy,   // 歩く敵
+	kTeleport,    // ★追加：ボス部屋への転送
+};
 
 class MapChipField {
 public:
@@ -29,7 +36,7 @@ public:
 
 	// ブロックの個数
 	static inline const uint32_t kNumBlockVertical = 20;
-	static inline const uint32_t kNumBlockHorizontal = 30;
+	static inline const uint32_t kNumBlockHorizontal = 250;
 
 	// マップチップの読み込み
 	void LoadMapChipData(const std::string& filePath);
@@ -45,6 +52,12 @@ public:
 
 	// インデックスから範囲矩形を取得
 	Rect GetRectByIndex(uint32_t xIndex, uint32_t yIndex);
+
+	// 指定した種類のマップチップを探して、最初に見つかった位置を返す（無ければ false）
+	bool FindMapChipIndex(MapChipType type, IndexSet& outIndexSet);
+
+	// 指定した種類のマップチップを、全部探して位置の一覧で返す
+	std::vector<IndexSet> FindAllMapChipIndex(MapChipType type);
 
 private:
 	// マップチップデータ構造体

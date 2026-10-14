@@ -13,6 +13,7 @@
 #include "PauseMenu.h"
 #include "Player.h"
 #include "Skydome.h"
+#include "Stage.h"
 
 using namespace KamataEngine;
 
@@ -40,9 +41,6 @@ public:
 	// 描画
 	void Draw() override;
 
-	// ブロックの生成
-	void GenerateBlocks();
-
 	// 全ての当たり判定を行う
 	void CheckAllCollisions();
 
@@ -63,6 +61,16 @@ public:
 	// 例: ボスを倒した瞬間に boss側から gameScene_->RequestGameClear() を呼ぶ
 	void RequestGameClear() { isCleared_ = true; }
 
+	// カメラシェイクの種類
+	using ShakeType = CameraController::ShakeType;
+
+	// カメラシェイクを要求する(PlayerやBossから呼ぶ)
+	void RequestCameraShake(ShakeType type) {
+		if (cameraController_) {
+			cameraController_->RequestShake(type);
+		}
+	}
+
 private:
 	// ヒットエフェクトのリスト
 	std::list<HitEffect*> hitEffects_;
@@ -76,8 +84,13 @@ private:
 	// デバッグカメラの切り替え・行列更新処理
 	void UpdateDebugCamera();
 
-	// ブロックのワールド行列更新処理
-	void UpdateBlocks();
+	// ボス部屋の出入りの処理（カメラの範囲の切り替え・ボス戦の開始）
+	void UpdateBossRoom();
+
+	// プレイヤーがボス部屋の中にいるか
+	bool isInBossRoom_ = false;
+	// ボス戦が始まったか（一度ボス部屋に入ったら true のまま）
+	bool isBossFightStarted_ = false;
 
 	// 終了フラグ
 	bool finished_ = false;
@@ -117,11 +130,10 @@ private:
 	Player* player_ = nullptr;
 	Boss* boss_ = nullptr;
 	Skydome* skydome_ = nullptr;
-	MapChipField* mapChipField_ = nullptr;
+	Stage* stage_ = nullptr;
 	DeathParticles* deathParticles_ = nullptr;
 
 	// テクスチャハンドル
-	uint32_t blockTextureHandle_ = 0;
 	uint32_t playerDataHandle_ = 0;
 	uint32_t bossDataHandle_ = 0;
 
@@ -132,10 +144,8 @@ private:
 	// 3Dモデル
 	Model* modelSkydome_ = nullptr;
 	Model* playerModel_ = nullptr;
-	Model* blockModel_ = nullptr;
 	Model* particleModel_ = nullptr;
 	Model* deathParticleModel_ = nullptr;
 	Model* modelAttack_ = nullptr;
 	Model* bossModel_ = nullptr;
-	std::vector<std::vector<WorldTransform*>> worldTransformBlocks_;
 };

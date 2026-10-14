@@ -7,8 +7,12 @@
 namespace {
 // 文字列からMapChipTypeへの変換テーブル
 std::map<std::string, MapChipType> mapChipTable = {
-    {"0", MapChipType::kBlank},
-    {"1", MapChipType::kBlock},
+    {"0", MapChipType::kBlank      },
+    {"1", MapChipType::kBlock      },
+    {"2", MapChipType::kPlayerSpawn},
+    {"3", MapChipType::kBossSpawn  },
+    {"4", MapChipType::kWalkEnemy  },
+    {"5", MapChipType::kTeleport   }, 
 };
 } // namespace
 
@@ -84,4 +88,29 @@ MapChipField::Rect MapChipField::GetRectByIndex(uint32_t xIndex, uint32_t yIndex
 	rect.top = center.y + kBlockHeight / 2.0f;
 
 	return rect;
+}
+
+bool MapChipField::FindMapChipIndex(MapChipType type, IndexSet& outIndexSet) {
+	for (uint32_t y = 0; y < kNumBlockVertical; y++) {
+		for (uint32_t x = 0; x < kNumBlockHorizontal; x++) {
+			if (mapChipData_.data[y][x] == type) {
+				outIndexSet.xIndex = x;
+				outIndexSet.yIndex = y;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+std::vector<MapChipField::IndexSet> MapChipField::FindAllMapChipIndex(MapChipType type) {
+	std::vector<IndexSet> result;
+	for (uint32_t y = 0; y < kNumBlockVertical; y++) {
+		for (uint32_t x = 0; x < kNumBlockHorizontal; x++) {
+			if (mapChipData_.data[y][x] == type) {
+				result.push_back({x, y});
+			}
+		}
+	}
+	return result;
 }

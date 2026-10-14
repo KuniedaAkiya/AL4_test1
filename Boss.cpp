@@ -49,12 +49,18 @@ void Boss::Initialize(Model* model, Camera* camera, uint32_t textureHandle, cons
 
 	ClampPosition();
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldTransform();
 }
 
 // ボスの位置を、動ける範囲の中に収める
 void Boss::ClampPosition() { worldTransform_.translation_.x = std::clamp(worldTransform_.translation_.x, minX_, maxX_); }
+
+// ワールド行列を更新する
+void Boss::UpdateWorldTransform() {
+	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
+
+	worldTransform_.TransferMatrix();
+}
 
 // 毎フレームの更新（行動の切り替えと実行、HPバーの更新）
 void Boss::Update() {
@@ -170,7 +176,7 @@ void Boss::TakeDamage(int32_t damage, bool isAttackUp) {
 }
 
 // プレイヤーとぶつかったときの処理（プレイヤーが攻撃中ならダメージを受ける）
-void Boss::OnCollision(const Player* player) {
+void Boss::OnCollision(Player* player) {
 	if (behavior_ == Behavior::kDeath || behavior_ == Behavior::kRevive) {
 		return;
 	}
@@ -184,16 +190,26 @@ void Boss::OnCollision(const Player* player) {
 	bool isAttackUp = player->IsAttackUp();
 	// プレイヤーの今の攻撃のダメージ量
 	int32_t damage = player->GetAttackDamage();
-	const_cast<Player*>(player)->MarkAttackHit();
+	player->MarkAttackHit();
 
 	if (isAttackUp) {
-		const_cast<Player*>(player)->ClearAttackUp();
+		player->ClearAttackUp();
 	}
 
 	if (gameScene_) {
 		// ヒットエフェクトを出す位置（ボスとプレイヤーの中間）
 		Vector3 effectPos = (GetWorldPosition() + player->GetWorldPosition()) / 2.0f;
 		gameScene_->CreateHitEffect(effectPos);
+	}
+
+	if (cameraController_) {
+		CameraController::ShakeType shake = CameraController::ShakeType::kWeak;
+		if (damage >= 3) {
+			shake = CameraController::ShakeType::kStrong;
+		} else if (damage == 2) {
+			shake = CameraController::ShakeType::kMedium;
+		}
+		cameraController_->RequestShake(shake);
 	}
 
 	TakeDamage(damage, isAttackUp);
@@ -228,9 +244,7 @@ void Boss::BehaviorIdleUpdate() {
 	}
 
 	ClampPosition();
-
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldTransform();
 }
 
 // 突進攻撃に入るときの初期化（突進する向きを決める）
@@ -269,9 +283,12 @@ void Boss::BehaviorAttackDashUpdate() {
 	}
 
 	ClampPosition();
+	UpdateWorldTransform();
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	// シェイク
+	if (cameraController_) {
+		cameraController_->RequestShake(CameraController::ShakeType::kContinuous);
+	}
 }
 
 // ジャンプ攻撃に入るときの初期化
@@ -315,14 +332,18 @@ void Boss::BehaviorAttackJumpUpdate() {
 
 			Audio::GetInstance()->PlayWave(soundHandleLand_, false, kSEVolume);
 
+			// シェイク
+			if (cameraController_) {
+				cameraController_->RequestShake(CameraController::ShakeType::kMedium);
+			}
+
 			behaviorRequest_ = Behavior::kIdle;
 		}
 	}
 
 	ClampPosition();
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldTransform();
 }
 
 // 復活演出に入るときの初期化
@@ -338,12 +359,21 @@ void Boss::BehaviorReviveInitialize() {
 void Boss::BehaviorReviveUpdate() {
 	behaviorTimer_ += 1.0f / 60.0f;
 
+	// シェイク
+	if (cameraController_) {
+		cameraController_->RequestShake(CameraController::ShakeType::kContinuous);
+	}
+
 	worldTransform_.rotation_.z = std::sin(behaviorTimer_ * 50.0f) * 0.15f;
 	// 復活中に体が脈打つように、拡大縮小する倍率
 	float pulse = 1.0f + std::sin(behaviorTimer_ * 30.0f) * 0.15f;
 	worldTransform_.scale_ = {kModelScale * pulse, kModelScale * pulse, kModelScale * pulse};
 
 	if (behaviorTimer_ >= kReviveTime) {
+		// シェイク
+		if (cameraController_) {
+			cameraController_->RequestShake(CameraController::ShakeType::kStrong);
+		}
 		worldTransform_.rotation_.z = 0.0f;
 		worldTransform_.scale_ = {kModelScale, kModelScale, kModelScale};
 		isCollisionDisabled_ = false;
@@ -351,9 +381,7 @@ void Boss::BehaviorReviveUpdate() {
 	}
 
 	ClampPosition();
-
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldTransform();
 }
 
 // 撃破演出に入るときの初期化
@@ -368,17 +396,26 @@ void Boss::BehaviorDeathUpdate() {
 	// 撃破演出の進み具合
 	float t = std::clamp(deathTimer_ / kDeathTime, 0.0f, 1.0f);
 
+	// 　シェイク
+	if (cameraController_) {
+		cameraController_->RequestShake(CameraController::ShakeType::kContinuous);
+	}
+
 	worldTransform_.rotation_.y += 0.3f;
 	worldTransform_.rotation_.x = t * std::numbers::pi_v<float>;
 	worldTransform_.scale_ = {(1.0f - t) * kModelScale, (1.0f - t) * kModelScale, (1.0f - t) * kModelScale};
 
 	ClampPosition();
-
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldTransform();
 
 	if (deathTimer_ >= kDeathTime) {
 		isDead_ = true;
+
+		// シェイク
+		if (cameraController_) {
+			cameraController_->RequestShake(CameraController::ShakeType::kStrong);
+		}
+
 		if (gameScene_) {
 			gameScene_->RequestGameClear();
 		}
