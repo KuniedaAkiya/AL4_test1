@@ -1,12 +1,12 @@
 #pragma once
 #include "KamataEngine.h"
-#include "MapChipField.h"
-#include "MatrixFunction.h"
 
 using namespace KamataEngine;
 
 class Player;
 class GameScene;
+class CameraController;
+class MapChipField;
 
 class Boss {
 public:
@@ -59,7 +59,10 @@ public:
 	bool IsCollisionDisabled() const { return isCollisionDisabled_; }
 
 	// プレイヤーとぶつかったときの処理
-	void OnCollision(const Player* player);
+	void OnCollision(Player* player);
+
+	// カメラシェイク
+	void SetCameraController(CameraController* cameraController) { cameraController_ = cameraController; }
 
 private:
 	// ==== 音の大きさ設定 ====
@@ -86,6 +89,8 @@ private:
 	GameScene* gameScene_ = nullptr;
 	// マップチップのデータ
 	MapChipField* mapChipField_ = nullptr;
+	// カメラシェイク
+	CameraController* cameraController_ = nullptr;
 
 	// ボスの最大HP
 	static inline const int32_t kMaxHP = 10;
@@ -112,9 +117,9 @@ private:
 	static inline const float kDamageCooldownTime = 0.2f;
 
 	// ボスが動ける範囲の左端
-	float minX_ = 1.5f;
+	float minX_ = -10000.0f;
 	// ボスが動ける範囲の右端
-	float maxX_ = 27.5f;
+	float maxX_ = 10000.0f;
 
 	// 地面の高さ（ジャンプ攻撃の着地位置）
 	float groundY_ = 0.0f;
@@ -198,4 +203,6 @@ private:
 	void BehaviorDeathInitialize();
 	// 撃破演出の更新
 	void BehaviorDeathUpdate();
+	// ワールド行列を更新する
+	void UpdateWorldTransform();
 };

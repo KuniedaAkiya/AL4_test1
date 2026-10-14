@@ -1,5 +1,6 @@
 #pragma once
 #include "KamataEngine.h"
+#include "MapChipField.h"
 #include "MatrixFunction.h"
 
 using namespace KamataEngine;
@@ -7,8 +8,8 @@ using namespace KamataEngine;
 class Enemy;
 class ShieldEnemy;
 class Boss;
-class MapChipField;
 class GameScene;
+class CameraController;
 
 class Player {
 public:
@@ -62,23 +63,23 @@ public:
 	void OnCollision(const Boss* boss);
 
 	Vector3 CornerPosition(const Vector3& center, Corner corner);
-	void inputMove();
+	void InputMove();
 	void CheckMapCollision(CollisionMapInfo& info);
 	void TopCollision(CollisionMapInfo& info);
 	void BottomCollision(CollisionMapInfo& info);
 	void LeftCollision(CollisionMapInfo& info);
 	void RightCollision(CollisionMapInfo& info);
-	void PositionUpDate(const CollisionMapInfo& info);
+	void PositionUpdate(const CollisionMapInfo& info);
 	void CeilingCollision(const CollisionMapInfo& info);
 	void WallCollision(const CollisionMapInfo& info);
 	void ChangeGroundingState(const CollisionMapInfo& info);
 
 	void BehaviorRootInitialize();
-	void BehaviorRootUpData();
+	void BehaviorRootUpdate();
 	void BehaviorAttackInitialize();
-	void BehaviorAttackUpData();
+	void BehaviorAttackUpdate();
 	void BehaviorKnockbackInitialize();
-	void BehaviorKnockbackUpData();
+	void BehaviorKnockbackUpdate();
 	void BehaviorGuardInitialize();
 	void BehaviorGuardUpdate();
 
@@ -110,6 +111,16 @@ public:
 	AABB GetSwordAABB() const;
 	// 他の物体（敵・ボス）のAABBと重なっている分だけ横に押し出される
 	void PushOutFrom(const AABB& other);
+
+	// TPチップに触れたかどうか（確認と同時に、要求を消す）
+	bool ConsumeTeleportRequest() {
+		const bool requested = isTeleportRequested_;
+		isTeleportRequested_ = false;
+		return requested;
+	}
+
+	// カメラシェイク
+	void SetCameraController(CameraController* cameraController) { cameraController_ = cameraController; }
 
 private:
 	// ==== 音の大きさ設定 ====
@@ -171,6 +182,9 @@ private:
 	bool isKnockbackRequested_ = false;
 	float knockbackTimer_ = 0.0f;
 
+	// カメラシェイク
+	CameraController* cameraController_ = nullptr;
+
 	MapChipField* mapChipField_ = nullptr;
 	Model* playerModel_ = nullptr;
 	Camera* camera_ = nullptr;
@@ -195,6 +209,8 @@ private:
 
 	bool onGround_ = true;
 	bool isDead_ = false;
+
+	bool isTeleportRequested_ = false;
 
 	static inline const int32_t kMaxHP = 3;
 	int32_t hp_ = kMaxHP;
@@ -260,4 +276,9 @@ private:
 	void FaceCurrentDirection();
 	// ワールド行列の更新と転送
 	void UpdateWorldMatrix();
+	// すり抜け防止の補助関数
+	bool IsBlockTile(MapChipType type) const { return type == MapChipType::kBlock || type == MapChipType::kTeleport; }
+	// 角の位置のチップを調べる。ぶつかるブロックなら true。TPチップなら、TP要求も立てる
+	// nextOffsetX/Y は、1つ手前（進んできた側）のチップへのずれ
+	bool IsCornerHit(const Vector3& cornerPosition, int32_t nextOffsetX, int32_t nextOffsetY);
 };

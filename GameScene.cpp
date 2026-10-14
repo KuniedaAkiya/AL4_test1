@@ -6,10 +6,8 @@ using namespace KamataEngine;
 GameScene::~GameScene() {
 	// シーン終了（破棄）時に再生中および保持しているBGMを停止
 	Audio::GetInstance()->StopWave(bgmPlayHandle_);
-	Audio::GetInstance()->StopWave(bgmBossHandle_);
 
 	delete playerModel_;
-	delete blockModel_;
 	delete boss_;
 	delete bossModel_;
 	delete deathParticleModel_;
@@ -30,14 +28,8 @@ GameScene::~GameScene() {
 	delete modelSkydome_;
 	delete skydome_;
 	delete debugCamera_;
-	delete mapChipField_;
 	delete cameraController_;
-	for (std::vector<WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
-		for (WorldTransform* worldTransformBlock : worldTransformBlockLine) {
-			delete worldTransformBlock;
-		}
-	}
-	worldTransformBlocks_.clear();
+	delete stage_;
 }
 
 void GameScene::Initialize() {
@@ -55,20 +47,18 @@ void GameScene::Initialize() {
 	// テクスチャの読み込み
 	playerDataHandle_ = TextureManager::Load("player/player.png");
 	bossDataHandle_ = TextureManager::Load("boss/boss.png");
-	blockTextureHandle_ = TextureManager::Load("block/block.png");
 
 	// 3Dモデルの生成
 	playerModel_ = Model::CreateFromOBJ("player", true);
 	bossModel_ = Model::CreateFromOBJ("boss", true);
 	modelSkydome_ = Model::CreateFromOBJ("SkyDome", true);
-	blockModel_ = Model::CreateFromOBJ("block", true);
 	particleModel_ = Model::CreateFromOBJ("particle", true);
 	deathParticleModel_ = Model::CreateFromOBJ("deathParticle", true);
 	modelAttack_ = Model::CreateFromOBJ("Sword", true);
 
 	// マップチップフィールドの生成
-	mapChipField_ = new MapChipField();
-	mapChipField_->LoadMapChipData("Resources/Blocks.csv");
+	stage_ = new Stage();
+	stage_->Initialize("Resources/Blocks.csv");
 
 	// インスタンスの生成
 	player_ = new Player();
@@ -76,25 +66,20 @@ void GameScene::Initialize() {
 	debugCamera_ = new DebugCamera(1280, 720);
 	fade_ = new Fade;
 
-	// ブロックの生成
-	GenerateBlocks();
-
 	// フェーズの初期化
 	fade_->Initialize();
 	fade_->Start(Fade::Status::FadeIn, 1.0f);
 
 	// Player初期化
-	Vector3 playerPosition = mapChipField_->GetMapChipPositionByIndex(1, 18);
-
-	// ★ 引数の受け渡しを修正して modelAttack_ を渡す
+	Vector3 playerPosition = stage_->GetPlayerSpawnPosition();
 	player_->Initialize(playerModel_, modelAttack_, &camera_, playerDataHandle_, playerPosition);
-	player_->SetmapChipField(mapChipField_);
+	player_->SetmapChipField(stage_->GetMapChipField());
 	player_->SetGameScene(this);
 
 	boss_ = new Boss();
-	Vector3 bossPosition = mapChipField_->GetMapChipPositionByIndex(40, 18); // 好きな出現位置に調整
-	boss_->Initialize(bossModel_, &camera_, bossDataHandle_, bossPosition);
-	boss_->SetmapChipField(mapChipField_);
+	boss_->SetMovableArea(stage_->GetBossMinX(), stage_->GetBossMaxX());
+	boss_->Initialize(bossModel_, &camera_, bossDataHandle_, stage_->GetBossSpawnPosition());
+	boss_->SetmapChipField(stage_->GetMapChipField());
 	boss_->SetGameScene(this);
 	boss_->SetTarget(player_);
 
@@ -114,8 +99,13 @@ void GameScene::Initialize() {
 
 	cameraController_ = new CameraController();
 	cameraController_->Initialize(&camera_);
+	cameraController_->SetMovableArea(stage_->GetStageCameraArea());
 	cameraController_->SetTarget(player_);
 	cameraController_->Reset();
+
+	// シェイクを頼めるように、PlayerとBossにカメラを渡す
+	player_->SetCameraController(cameraController_);
+	boss_->SetCameraController(cameraController_);
 
 	// ポーズメニューの初期化
 	pauseMenu_.Initialize();
@@ -164,10 +154,26 @@ void GameScene::Update() {
 		break;
 
 	case Phase::kPlay:
-		// 自機
 		player_->Update();
 
-		if (boss_) {
+		// TPチップに触れていたら、ボス部屋の入口へ移動させる
+		if (player_->ConsumeTeleportRequest()) {
+			WorldTransform& wt = player_->GetWorldTransform();
+			const Vector3 destination = stage_->GetTeleportDestination();
+			wt.translation_.x = destination.x;
+			wt.translation_.y = destination.y;
+			player_->GetVelocity() = {};
+
+			// 行列をすぐ反映する（Updateを待たずに描画へ）
+			wt.matWorld_ = MakeAffineMatrix(wt.scale_, wt.rotation_, wt.translation_);
+			wt.TransferMatrix();
+
+			cameraController_->Reset();
+		}
+
+		UpdateBossRoom();
+
+		if (boss_ && isBossFightStarted_) {
 			boss_->Update();
 		}
 
@@ -227,11 +233,14 @@ void GameScene::Update() {
 }
 
 void GameScene::UpdateCommon() {
+	// カメラシェイク
+	cameraController_->UpdateShake();
+
 	// デバッグカメラの切り替え・カメラ行列の更新
 	UpdateDebugCamera();
 
 	// ブロックのワールド行列更新
-	UpdateBlocks();
+	stage_->Update();
 }
 
 void GameScene::UpdateDebugCamera() {
@@ -251,43 +260,6 @@ void GameScene::UpdateDebugCamera() {
 	} else {
 		// ビュープロジェクション行列の更新と転送
 		camera_.UpdateMatrix();
-	}
-}
-
-void GameScene::UpdateBlocks() {
-	for (std::vector<WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
-		for (WorldTransform* worldTransformBlock : worldTransformBlockLine) {
-			if (!worldTransformBlock) {
-				continue;
-			}
-			worldTransformBlock->matWorld_ = MakeAffineMatrix(worldTransformBlock->scale_, worldTransformBlock->rotation_, worldTransformBlock->translation_);
-			// 定数バッファに転送する
-			worldTransformBlock->TransferMatrix();
-		}
-	}
-}
-
-void GameScene::GenerateBlocks() {
-	// 要素数
-	uint32_t numBlockVertical = MapChipField::kNumBlockVertical;
-	uint32_t numBlockHorizontal = MapChipField::kNumBlockHorizontal;
-
-	// 要素数の変更
-	worldTransformBlocks_.resize(numBlockVertical);
-	for (uint32_t i = 0; i < numBlockVertical; i++) {
-		worldTransformBlocks_[i].resize(numBlockHorizontal);
-	}
-
-	// ブロックの生成
-	for (uint32_t i = 0; i < numBlockVertical; i++) {
-		for (uint32_t j = 0; j < numBlockHorizontal; j++) {
-			if (mapChipField_->GetMapChipTypeByIndex(j, i) == MapChipType::kBlock) {
-				WorldTransform* worldTransform = new WorldTransform();
-				worldTransform->Initialize();
-				worldTransformBlocks_[i][j] = worldTransform;
-				worldTransformBlocks_[i][j]->translation_ = mapChipField_->GetMapChipPositionByIndex(j, i);
-			}
-		}
 	}
 }
 
@@ -390,6 +362,21 @@ void GameScene::CreateGuardEffect(const Vector3& position) {
 	guardEffects_.push_back(newGuardEffect);
 }
 
+void GameScene::UpdateBossRoom() {
+	const bool inBossRoom = stage_->IsInBossRoom(player_->GetWorldPosition().x);
+
+	// 出入りで、カメラの動ける範囲を切り替える
+	if (inBossRoom != isInBossRoom_) {
+		isInBossRoom_ = inBossRoom;
+		cameraController_->SetMovableArea(inBossRoom ? stage_->GetBossRoomCameraArea() : stage_->GetStageCameraArea());
+	}
+
+	// 一度入ったらボス戦開始（部屋を出ても戦いは続く）
+	if (inBossRoom) {
+		isBossFightStarted_ = true;
+	}
+}
+
 void GameScene::Draw() {
 	// 3Dモデルの描画前処理
 	Model::PreDraw();
@@ -398,14 +385,7 @@ void GameScene::Draw() {
 	skydome_->Draw();
 
 	// ブロックの描画
-	for (std::vector<WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
-		for (WorldTransform* worldTransformBlock : worldTransformBlockLine) {
-			if (!worldTransformBlock) {
-				continue;
-			}
-			blockModel_->Draw(*worldTransformBlock, camera_, blockTextureHandle_);
-		}
-	}
+	stage_->Draw(camera_);
 
 	// 自機の描画
 	player_->Draw();
@@ -433,7 +413,7 @@ void GameScene::Draw() {
 
 	// フェードの描画
 	Sprite::PreDraw();
-	if (boss_) {
+	if (boss_ && isBossFightStarted_) {
 		boss_->DrawUI();
 	}
 	player_->DrawUI();
