@@ -165,17 +165,16 @@
   <ItemGroup>
     <ClCompile Include="Boss.cpp" />
     <ClCompile Include="CameraController.cpp" />
-    <ClCompile Include="DeathParticles.cpp" />
     <ClCompile Include="Enemy.cpp" />
     <ClCompile Include="Fade.cpp" />
     <ClCompile Include="GameClearScene.cpp" />
     <ClCompile Include="GameOverScene.cpp" />
     <ClCompile Include="GameScene.cpp" />
     <ClCompile Include="GuardEffect.cpp" />
-    <ClCompile Include="HitEffect.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MapChipField.cpp" />
     <ClCompile Include="MatrixFunction.cpp" />
+    <ClCompile Include="Particle.cpp" />
     <ClCompile Include="PauseMenu.cpp" />
     <ClCompile Include="Player.cpp" />
     <ClCompile Include="ShieldEnemy.cpp" />
@@ -283,17 +282,16 @@
   <ItemGroup>
     <ClInclude Include="Boss.h" />
     <ClInclude Include="CameraController.h" />
-    <ClInclude Include="DeathParticles.h" />
     <ClInclude Include="Enemy.h" />
     <ClInclude Include="Fade.h" />
     <ClInclude Include="GameClearScene.h" />
     <ClInclude Include="GameOverScene.h" />
     <ClInclude Include="GameScene.h" />
     <ClInclude Include="Guardeffect.h" />
-    <ClInclude Include="HitEffect.h" />
     <ClInclude Include="IScene.h" />
     <ClInclude Include="MapChipField.h" />
     <ClInclude Include="MatrixFunction.h" />
+    <ClInclude Include="Particle.h" />
     <ClInclude Include="PauseMenu.h" />
     <ClInclude Include="Player.h" />
     <ClInclude Include="ShieldEnemy.h" />

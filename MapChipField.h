@@ -12,6 +12,8 @@ enum class MapChipType {
 	kBossSpawn,   // ボス出現位置
 	kWalkEnemy,   // 歩く敵
 	kTeleport,    // ★追加：ボス部屋への転送
+	kJumpPad,     // ジャンプ台（踏むと打ち上げる。すり抜けられる）
+	kSpike,       // 棘（触れるとダメージ。すり抜けられる）
 };
 
 class MapChipField {

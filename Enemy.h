@@ -14,10 +14,9 @@ public:
 	// 振る舞い
 	enum class Behavior {
 		kUnknown,
-		kWalk,        // 待機（旧歩行状態：動かない）
-		kDeath,       // デス演出
-		kStagger,     // ジャストガードされた時の怯み
-		kRespawnWait, // 復活待ち（非表示）
+		kWalk,    // 待機/移動
+		kDeath,   // デス演出
+		kStagger, // ジャストガードされた時の怯み
 	};
 
 	// デストラクタ
@@ -50,8 +49,14 @@ public:
 	// GameSceneのポインタを設定
 	void SetGameScene(GameScene* gameScene) { gameScene_ = gameScene; }
 
-	// 練習用ダミー設定（互換性維持のため残しています）
+	// プレイヤーのポインタを設定（画面内に入ったか判定用）
+	void SetPlayer(Player* player) { player_ = player; }
+
+	// 練習用ダミー設定
 	void SetTrainingDummy(bool isTrainingDummy) { (void)isTrainingDummy; }
+
+	// 倒れて、消えたかどうか
+	bool IsDead() const { return isDead_; }
 
 	// 死亡フラグ
 	bool isDead_ = false;
@@ -62,8 +67,9 @@ public:
 private:
 	GameScene* gameScene_ = nullptr;
 	MapChipField* mapChipField_ = nullptr;
+	Player* player_ = nullptr; // プレイヤーへのポインタ
 
-	// 初期配置座標（復活時に戻る場所）
+	// 初期配置座標
 	Vector3 spawnPosition_{};
 
 	// ワールドトランスフォーム
@@ -74,8 +80,18 @@ private:
 	Camera* camera_ = nullptr;
 	uint32_t enemyTextureHandle_ = 0;
 
-	// 速度（ノックバックなどで使用）
+	// 速度
 	Vector3 velocity_ = {};
+
+	// 起動フラグ（画面内に入ったら true）
+	bool isActivated_ = false;
+	// 画面内に映ったと判定する距離（横幅）
+	static inline const float kActivateDistance = 14.0f;
+
+	// パトロール移動・重力設定
+	float moveDirection_ = -1.0f;                 // 移動方向 (-1.0f: 左, 1.0f: 右)
+	static inline const float kWalkSpeed = 0.03f; // 歩行速度
+	static inline const float kGravity = 0.03f;   // 重力
 
 	// 当たり判定サイズ
 	static inline const float kWidth = 0.8f;
@@ -89,15 +105,13 @@ private:
 	void BehaviorWalkUpdate();
 	void BehaviorDeathUpdate();
 	void BehaviorStaggerUpdate();
-	void BehaviorRespawnWaitUpdate();
 
 	// デス演出用タイマー
 	float deathTimer_ = 0.0f;
 	static inline const float kDeathTime = 0.5f;
 
-	// 復活待ち用タイマー
-	float respawnTimer_ = 0.0f;
-	static inline const float kRespawnTime = 1.0f;
+	// 倒した時のヒットストップ（フレーム数）
+	static inline const int32_t kHitStopFrames = 2;
 
 	// 怯み（ジャストガード時）演出用タイマー
 	float staggerTimer_ = 0.0f;

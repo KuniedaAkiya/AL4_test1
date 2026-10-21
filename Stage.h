@@ -2,6 +2,7 @@
 #include "CameraController.h"
 #include "KamataEngine.h"
 #include "MapChipField.h"
+#include "MatrixFunction.h"
 #include <string>
 #include <vector>
 
@@ -40,6 +41,11 @@ public:
 	// テレポートで移動する先の位置（ボス部屋の入口）
 	Vector3 GetTeleportDestination();
 
+	// 棘（ダメージ床）に触れているか
+	bool IsTouchingSpike(const AABB& aabb) const;
+	// ジャンプ台に触れているか
+	bool IsTouchingJumpPad(const AABB& aabb) const;
+
 private:
 	void GenerateBlocks();
 	// 指定した種類の目印の場所を返す。無ければ既定の位置を返す
@@ -59,6 +65,23 @@ private:
 	static inline const uint32_t kDefaultBossSpawnY = 18;
 	// テレポートで着く位置の、ボス部屋の左の壁からの距離
 	static inline const float kTeleportEntranceOffset = 2.0f;
+
+	// ===== 棘・ジャンプ台 =====
+	// 棘の見た目の大きさ（45度回した小さな立方体＝ひし形に見せる）
+	static inline const float kSpikeScale = 0.6f;
+	// 棘の当たり判定（見た目より少し小さくして、ふちで当たりにくくする）
+	static inline const float kSpikeHitHalfWidth = 0.35f;
+	static inline const float kSpikeHitHeight = 0.55f;
+	// ジャンプ台の厚み（薄い板）と、当たり判定の半分の幅
+	static inline const float kJumpPadHeight = 0.3f;
+	static inline const float kJumpPadHitHalfWidth = 0.5f;
+
+	// 当たり判定の箱（GenerateBlocks で作る）
+	std::vector<AABB> spikeAABBs_;
+	std::vector<AABB> jumpPadAABBs_;
+	// 見た目の色（ブロックのモデルに色をかけて使う）
+	ObjectColor spikeColor_;
+	ObjectColor jumpPadColor_;
 
 	MapChipField* mapChipField_ = nullptr;
 	Model* blockModel_ = nullptr;

@@ -1,15 +1,17 @@
 #pragma once
+#include <algorithm>
+#include <cstdint>
 #include <list>
 #include <vector>
 
 #include "Boss.h"
 #include "CameraController.h"
-#include "DeathParticles.h"
+#include "Enemy.h"
 #include "Fade.h"
 #include "GuardEffect.h"
-#include "HitEffect.h"
 #include "IScene.h"
 #include "MapChipField.h"
+#include "Particle.h"
 #include "PauseMenu.h"
 #include "Player.h"
 #include "Skydome.h"
@@ -53,77 +55,110 @@ public:
 	// 次に遷移するシーンの取得
 	IScene::Next GetNextScene() const override { return nextScene_; }
 
+	// 攻撃ヒット時のパーティクル生成
 	void CreateHitEffect(const Vector3& position);
 
+	// ガード時のエフェクト生成
 	void CreateGuardEffect(const Vector3& position);
 
+	// 敵撃破時などのパーティクル生成
+	void CreateDeathParticles(const Vector3& position);
+
 	// クリア条件を満たした時に外部（Bossなど）から呼び出す
-	// 例: ボスを倒した瞬間に boss側から gameScene_->RequestGameClear() を呼ぶ
 	void RequestGameClear() { isCleared_ = true; }
 
 	// カメラシェイクの種類
 	using ShakeType = CameraController::ShakeType;
 
-	// カメラシェイクを要求する(PlayerやBossから呼ぶ)
+	// カメラシェイクを要求する
 	void RequestCameraShake(ShakeType type) {
 		if (cameraController_) {
 			cameraController_->RequestShake(type);
 		}
 	}
 
+	// ヒットストップを要求する
+	void RequestHitStop(int32_t frames) { hitStopFrames_ = (std::max)(hitStopFrames_, frames); }
+
+	// チェックポイントリセット
+	static void ResetCheckpoint() { s_bossCheckpoint_ = false; }
+
+	// スロー演出を要求する
+	void RequestSlow(int32_t frames) { slowFrames_ = (std::max)(slowFrames_, frames); }
+
+	// プレイヤーの斬撃パーティクル
+	void CreateSlashParticles(const Vector3& position, bool isRightDirection);
+
+	// 通常攻撃ヒットパーティクル
+	void CreateHitParticles(const Vector3& position);
+
+	// ボス被弾時のパーティクル（少しだけ飛び散る）
+	void CreateBossHitParticles(const Vector3& position, Model* model, uint32_t textureHandle);
+
+	// 【共通】スライム爆発パーティクル
+	void CreateSlimeExplosion(const Vector3& position, Model* model, uint32_t textureHandle, float baseScale, int32_t particleCount);
+
+	// プレイヤー死亡時パーティクル
+	void CreatePlayerDeathParticles(const Vector3& position);
+
+	// ボスにすぐ行ける奴（デバッグ用）
+	static void SetBossCheckpoint(bool flag = true) { s_bossCheckpoint_ = flag; }
+
 private:
-	// ヒットエフェクトのリスト
-	std::list<HitEffect*> hitEffects_;
+	// 敵のリスト
+	std::list<Enemy*> enemies_;
+	static inline const float kEnemySpawnYOffset = 0.1f;
 
-	// ガードエフェクトのリスト
+	// ジャンプ台の打ち上げ強度
+	static inline const float kJumpPadPower = 1.2f;
+
+	// ボス部屋チェックポイント
+	static inline bool s_bossCheckpoint_ = false;
+
+	// 背景天球色
+	static inline const Vector4 kBossFightSkyColor = {0.9f, 0.35f, 0.35f, 1.0f};
+
+	// 演出タイマー
+	int32_t hitStopFrames_ = 0;
+	int32_t slowFrames_ = 0;
+
+	// 死亡演出待ち時間タイマー（DeathParticlesの代わり）
+	float deathTimer_ = 0.0f;
+	static inline const float kDeathWaitTime = 1.6f;
+
+	// エフェクト・パーティクルリスト
 	std::list<GuardEffect*> guardEffects_;
+	std::list<Particle*> particles_; // 汎用パーティクルリスト
 
-	// フェーズに関わらず共通して行う更新処理（デバッグカメラ・ブロック更新など）
+	// 共通更新
 	void UpdateCommon();
-
-	// デバッグカメラの切り替え・行列更新処理
 	void UpdateDebugCamera();
-
-	// ボス部屋の出入りの処理（カメラの範囲の切り替え・ボス戦の開始）
 	void UpdateBossRoom();
 
-	// プレイヤーがボス部屋の中にいるか
 	bool isInBossRoom_ = false;
-	// ボス戦が始まったか（一度ボス部屋に入ったら true のまま）
 	bool isBossFightStarted_ = false;
 
-	// 終了フラグ
 	bool finished_ = false;
-	// 次に遷移するシーン（プレイ終了時に kGameOver / kGameClear のどちらかになる）
 	IScene::Next nextScene_ = IScene::Next::kNone;
-	// 現在のフェーズ
 	Phase phase_;
 	Fade* fade_ = nullptr;
 
-	// クリア条件が満たされたかどうか（RequestGameClear()で立てる）
 	bool isCleared_ = false;
-	// クリア演出の経過時間
 	float clearTimer_ = 0.0f;
-	// クリア演出の待機時間＜秒＞
 	static inline const float kClearWaitTime = 1.0f;
 
-	// ===== ポーズ機能 =====
+	// ポーズ機能
 	bool isPaused_ = false;
 	PauseMenu pauseMenu_;
-	// ===== ポーズ操作ガイド（常時表示） =====
 	Sprite* pauseGuideSprite_ = nullptr;
 	uint32_t pauseGuideTextureHandle_ = 0;
-	static inline const Vector2 kPauseGuidePosition = {1080.0f, 644.0f}; // 右下
+	static inline const Vector2 kPauseGuidePosition = {1080.0f, 644.0f};
 	static inline const Vector2 kPauseGuideSize = {160.0f, 36.0f};
 
 	// カメラ
 	Camera camera_{};
-	// カメラコントローラー
 	CameraController* cameraController_ = nullptr;
-
-	// デバッグカメラの有効フラグ
 	bool isDebugCameraActive_ = false;
-	// デバッグカメラ
 	DebugCamera* debugCamera_ = nullptr;
 
 	// インスタンス
@@ -131,21 +166,17 @@ private:
 	Boss* boss_ = nullptr;
 	Skydome* skydome_ = nullptr;
 	Stage* stage_ = nullptr;
-	DeathParticles* deathParticles_ = nullptr;
 
-	// テクスチャハンドル
+	// ハンドル
 	uint32_t playerDataHandle_ = 0;
 	uint32_t bossDataHandle_ = 0;
-
-	// --- BGMハンドル ---
 	uint32_t bgmBossHandle_ = 0;
-	uint32_t bgmPlayHandle_ = 0; // 再生中BGMの停止用
+	uint32_t bgmPlayHandle_ = 0;
 
-	// 3Dモデル
+	// モデル
 	Model* modelSkydome_ = nullptr;
 	Model* playerModel_ = nullptr;
 	Model* particleModel_ = nullptr;
-	Model* deathParticleModel_ = nullptr;
 	Model* modelAttack_ = nullptr;
 	Model* bossModel_ = nullptr;
 };

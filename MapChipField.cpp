@@ -12,7 +12,9 @@ std::map<std::string, MapChipType> mapChipTable = {
     {"2", MapChipType::kPlayerSpawn},
     {"3", MapChipType::kBossSpawn  },
     {"4", MapChipType::kWalkEnemy  },
-    {"5", MapChipType::kTeleport   }, 
+    {"5", MapChipType::kTeleport   },
+    {"6", MapChipType::kJumpPad    },
+    {"7", MapChipType::kSpike      },
 };
 } // namespace
 
