@@ -37,6 +37,7 @@ void Player::Initialize(Model* model, Model* modelAttack, Camera* camera, uint32
 	UpdateWorldMatrix();
 
 	worldTransformAttack_.Initialize();
+	worldTransformAttack_.scale_ = {kSwordScale, kSwordScale, kSwordScale};
 	objectColor_.Initialize();
 	velocity_ = {0.0f, 0.0f, 0.0f};
 
@@ -138,24 +139,11 @@ void Player::Update() {
 
 	// 落下即死チェック
 	if (worldTransform_.translation_.y < kFallDeathY && !isDead_) {
-		hp_ = 0;
-		isDead_ = true;
-
-		// ★落下即死時に敵・ボスと同じ共通パーティクル（爆発風）を生成
-		if (gameScene_) {
-			gameScene_->CreateSlimeExplosion(GetWorldPosition(), playerModel_, playerTextureHandle_, 0.25f, 20);
-		}
-
+		Die();
 		if (cameraController_) {
 			cameraController_->RequestShake(CameraController::ShakeType::kStrong);
 		}
-
-		// HP UIをすべてダメージ（非表示）カラーに変更
-		for (int32_t i = 0; i < kMaxHP; ++i) {
-			if (hpSprites_[i]) {
-				hpSprites_[i]->SetColor(Vector4{0.3f, 0.3f, 0.3f, 0.4f});
-			}
-		}
+		UpdateHpSprites();
 	}
 }
 
@@ -298,17 +286,13 @@ void Player::InputMove() {
 
 // 角の座標を取得
 Vector3 Player::CornerPosition(const Vector3& center, Corner corner) {
-	Vector3 offsetTable[kNumCorners]{
+	static const Vector3 offsetTable[kNumCorners] = {
 	    {+kWidth / 2.0f, -kHeight / 2.0f, 0.0f},
-        {-kWidth / 2.0f, -kHeight / 2.0f, 0.0f},
-        {+kWidth / 2.0f, +kHeight / 2.0f, 0.0f},
-        {-kWidth / 2.0f, +kHeight / 2.0f, 0.0f}
-    };
-	Vector3 result;
-	result.x = center.x + offsetTable[static_cast<uint32_t>(corner)].x;
-	result.y = center.y + offsetTable[static_cast<uint32_t>(corner)].y;
-	result.z = center.z + offsetTable[static_cast<uint32_t>(corner)].z;
-	return result;
+	    {-kWidth / 2.0f, -kHeight / 2.0f, 0.0f},
+	    {+kWidth / 2.0f, +kHeight / 2.0f, 0.0f},
+	    {-kWidth / 2.0f, +kHeight / 2.0f, 0.0f},
+	};
+	return center + offsetTable[static_cast<uint32_t>(corner)];
 }
 
 // 角の位置のチップを調べる
@@ -430,6 +414,51 @@ void Player::RightCollision(CollisionMapInfo& info) {
 // 位置更新
 void Player::PositionUpdate(const CollisionMapInfo& info) { worldTransform_.translation_ += info.move; }
 
+// ガードキーが押されているか
+bool Player::IsGuardKeyPressed() {
+	Input* input = Input::GetInstance();
+	return input->PushKey(DIK_LSHIFT) || input->PushKey(DIK_RSHIFT);
+}
+
+// 当たり判定をしながら横に動く
+void Player::MoveHorizontal(float dx) {
+	CollisionMapInfo collisionMapInfo;
+	collisionMapInfo.move = {dx, 0.0f, 0.0f};
+	CheckMapCollision(collisionMapInfo);
+	PositionUpdate(collisionMapInfo);
+	UpdateWorldMatrix();
+}
+
+// velocity_ どおりに動いて、マップとの当たり判定をして、行列を更新する
+void Player::MoveWithCollision() {
+	CollisionMapInfo collisionMapInfo;
+	collisionMapInfo.move = velocity_;
+	CheckMapCollision(collisionMapInfo);
+	PositionUpdate(collisionMapInfo);
+	CeilingCollision(collisionMapInfo);
+	WallCollision(collisionMapInfo);
+	ChangeGroundingState(collisionMapInfo);
+	UpdateWorldMatrix();
+}
+
+// HPアイコンの色を今のHPに合わせる
+void Player::UpdateHpSprites() {
+	for (int32_t i = 0; i < kMaxHP; ++i) {
+		if (hpSprites_[i]) {
+			hpSprites_[i]->SetColor(i < hp_ ? Vector4{1.0f, 1.0f, 1.0f, 1.0f} : Vector4{0.3f, 0.3f, 0.3f, 0.4f});
+		}
+	}
+}
+
+// 死亡処理（HP0・死亡フラグ・爆発パーティクル）
+void Player::Die() {
+	hp_ = 0;
+	isDead_ = true;
+	if (gameScene_) {
+		gameScene_->CreateSlimeExplosion(GetWorldPosition(), playerModel_, playerTextureHandle_, 0.25f, 20);
+	}
+}
+
 // 上方向の当たり判定
 void Player::CeilingCollision(const CollisionMapInfo& info) {
 	if (info.isHitTop) {
@@ -481,23 +510,15 @@ void Player::BehaviorRootUpdate() {
 		coyoteTimer_ -= 1.0f / 60.0f;
 	}
 
-	if (counterTimer_ > 0.0f && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+	const bool attackPressed = Input::GetInstance()->TriggerKey(DIK_RETURN);
+	if (attackPressed && counterTimer_ > 0.0f) {
 		RequestCounterAttack();
-	} else if ((onGround_ || coyoteTimer_ > 0.0f) && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+	} else if (attackPressed && (onGround_ || coyoteTimer_ > 0.0f)) {
 		behaviorRequest_ = Behavior::kAttack;
 		coyoteTimer_ = 0.0f;
-	} else if (Input::GetInstance()->PushKey(DIK_LCONTROL) && mp_ > 0.0f) {
+	} else if (IsGuardKeyPressed() && mp_ > 0.0f) {
 		behaviorRequest_ = Behavior::kGuard;
 	}
-
-	CollisionMapInfo collisionMapInfo;
-	collisionMapInfo.move = velocity_;
-
-	CheckMapCollision(collisionMapInfo);
-	PositionUpdate(collisionMapInfo);
-	CeilingCollision(collisionMapInfo);
-	WallCollision(collisionMapInfo);
-	ChangeGroundingState(collisionMapInfo);
 
 	if (turnTimer_ > 0.0f) {
 		turnTimer_ -= 1.0f / 60.0f;
@@ -510,7 +531,7 @@ void Player::BehaviorRootUpdate() {
 		worldTransform_.rotation_.y = Lerp(turnFirstRotationY_, destinationRotationY, turnTimer_, kTimeTurn);
 	}
 
-	UpdateWorldMatrix();
+	MoveWithCollision();
 }
 
 // 攻撃行動状態の初期化
@@ -558,7 +579,7 @@ void Player::BehaviorAttackUpdate() {
 
 	float swordReach = 0.0f;
 
-	if (!isCounterAttack_ && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+	if (!isCounterAttack_ && Input::GetInstance()->TriggerKey(DIK_RETURN)) {
 		comboInputBuffered_ = true;
 	}
 
@@ -641,8 +662,6 @@ void Player::BehaviorAttackUpdate() {
 	CheckMapCollision(collisionMapInfo);
 	PositionUpdate(collisionMapInfo);
 
-	UpdateSwordTransform(swordDeg);
-
 	UpdateWorldMatrix();
 
 	UpdateSwordTransform(swordDeg, swordReach);
@@ -671,7 +690,6 @@ void Player::UpdateSwordTransform(float swordDegrees, float reach) {
 	const float yOffset = kSwordPivotOffset.y + (IsCounterAttack() ? kCounterSwordYOffset : 0.0f);
 	worldTransformAttack_.translation_ = {worldTransform_.translation_.x + (kSwordPivotOffset.x + reach) * dir, worldTransform_.translation_.y + yOffset, worldTransform_.translation_.z};
 	worldTransformAttack_.rotation_ = {0.0f, 0.0f, swordDegrees * std::numbers::pi_v<float> / 180.0f * dir};
-
 	worldTransformAttack_.matWorld_ = MakeAffineMatrix(worldTransformAttack_.scale_, worldTransformAttack_.rotation_, worldTransformAttack_.translation_);
 	worldTransformAttack_.TransferMatrix();
 }
@@ -690,23 +708,14 @@ AABB Player::GetSwordAABB() const {
 	return aabb;
 }
 
-// 他の物体のAABBと重なっている分だけ横に押し出される
-void Player::PushOutFrom(const AABB& other) {
+// ガード中に敵・ボスが当たったとき、少し後ろにのけぞる
+void Player::OnGuardHit(const AABB& other) {
 	const AABB self = GetAABB();
-	const float selfCenterX = (self.min.x + self.max.x) * 0.5f;
-	const float otherCenterX = (other.min.x + other.max.x) * 0.5f;
+	const float dir = ((self.min.x + self.max.x) < (other.min.x + other.max.x)) ? -1.0f : 1.0f;
+	MoveHorizontal(dir * kGuardKnockbackDistance);
 
-	const float dir = (selfCenterX < otherCenterX) ? -1.0f : 1.0f;
-	const float overlap = (dir < 0.0f) ? (self.max.x - other.min.x) : (other.max.x - self.min.x);
-	if (overlap <= 0.0f) {
-		return;
-	}
-
-	CollisionMapInfo collisionMapInfo;
-	collisionMapInfo.move = {dir * overlap, 0.0f, 0.0f};
-	CheckMapCollision(collisionMapInfo);
-	PositionUpdate(collisionMapInfo);
-	UpdateWorldMatrix();
+	// ガードを解除した直後に、重なったままダメージを受けないようにする
+	GrantInvincible(kGuardEndInvincibleTime);
 }
 
 // カウンター攻撃要求
@@ -767,15 +776,7 @@ void Player::BehaviorKnockbackUpdate() {
 		break;
 	}
 
-	CollisionMapInfo collisionMapInfo;
-	collisionMapInfo.move = velocity_;
-	CheckMapCollision(collisionMapInfo);
-	PositionUpdate(collisionMapInfo);
-	CeilingCollision(collisionMapInfo);
-	WallCollision(collisionMapInfo);
-	ChangeGroundingState(collisionMapInfo);
-
-	UpdateWorldMatrix();
+	MoveWithCollision();
 }
 
 // ガード行動状態の初期化
@@ -789,7 +790,7 @@ void Player::BehaviorGuardInitialize() {
 void Player::BehaviorGuardUpdate() {
 	guardTimer_ += 1.0f / 60.0f;
 
-	if (!Input::GetInstance()->PushKey(DIK_LCONTROL)) {
+	if (!IsGuardKeyPressed()) {
 		behaviorRequest_ = Behavior::kRoot;
 	}
 
@@ -799,7 +800,7 @@ void Player::BehaviorGuardUpdate() {
 		behaviorRequest_ = Behavior::kRoot;
 	}
 
-	if (counterTimer_ > 0.0f && Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+	if (counterTimer_ > 0.0f && Input::GetInstance()->TriggerKey(DIK_RETURN)) {
 		RequestCounterAttack();
 	}
 
@@ -809,15 +810,7 @@ void Player::BehaviorGuardUpdate() {
 		velocity_.y = std::max(velocity_.y, -kLimitFallSpeed);
 	}
 
-	CollisionMapInfo collisionMapInfo;
-	collisionMapInfo.move = velocity_;
-	CheckMapCollision(collisionMapInfo);
-	PositionUpdate(collisionMapInfo);
-	CeilingCollision(collisionMapInfo);
-	WallCollision(collisionMapInfo);
-	ChangeGroundingState(collisionMapInfo);
-
-	UpdateWorldMatrix();
+	MoveWithCollision();
 }
 
 // ジャストガードが有効かどうかを取得
@@ -852,24 +845,14 @@ void Player::TakeDamage() {
 	Audio::GetInstance()->PlayWave(soundHandleDamage_, false, kSEVolume);
 
 	if (hp_ <= 0) {
-		hp_ = 0;
-		isDead_ = true;
-
-		// ★死亡時に敵・ボスと同じ共通パーティクル（爆発風）を生成
-		if (gameScene_) {
-			gameScene_->CreateSlimeExplosion(GetWorldPosition(), playerModel_, playerTextureHandle_, 0.25f, 20);
-		}
+		Die();
 	}
 
 	if (cameraController_) {
 		cameraController_->RequestShake(isDead_ ? CameraController::ShakeType::kStrong : CameraController::ShakeType::kMedium);
 	}
 
-	for (int32_t i = 0; i < kMaxHP; ++i) {
-		if (hpSprites_[i]) {
-			hpSprites_[i]->SetColor(i < hp_ ? Vector4{1.0f, 1.0f, 1.0f, 1.0f} : Vector4{0.3f, 0.3f, 0.3f, 0.4f});
-		}
-	}
+	UpdateHpSprites();
 
 	if (isDead_) {
 		return;
@@ -900,14 +883,6 @@ void Player::Launch(float power) {
 
 // 攻撃命中時の反動で後ろに下がる処理
 void Player::ApplyRecoil(float distance) {
-	// プレイヤーが向いている方向の反対側へ移動（右向きなら左、左向きなら右）
 	const float recoilDir = (lrDirection_ == LRDirection::kRight) ? -1.0f : 1.0f;
-
-	CollisionMapInfo collisionMapInfo;
-	collisionMapInfo.move = {recoilDir * distance, 0.0f, 0.0f};
-
-	// 壁を突き抜けないようにマップの当たり判定を実行して位置を更新
-	CheckMapCollision(collisionMapInfo);
-	PositionUpdate(collisionMapInfo);
-	UpdateWorldMatrix();
+	MoveHorizontal(recoilDir * distance);
 }

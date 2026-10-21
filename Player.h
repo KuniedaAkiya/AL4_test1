@@ -83,6 +83,8 @@ public:
 	void BehaviorGuardInitialize();
 	void BehaviorGuardUpdate();
 
+	// ガード中に敵・ボスが当たったとき、少し後ろにのけぞる
+	void OnGuardHit(const AABB& other);
 	bool IsAttack() const { return behavior_ == Behavior::kAttack; }
 	void RequestKnockback() { isKnockbackRequested_ = true; }
 	int32_t GetHP() const { return hp_; }
@@ -115,8 +117,6 @@ public:
 	bool IsSwordActive() const { return behavior_ == Behavior::kAttack && attackPhase_ == AttackPhase::kSwing; }
 	// 剣の当たり判定
 	AABB GetSwordAABB() const;
-	// 他の物体（敵・ボス）のAABBと重なっている分だけ横に押し出される
-	void PushOutFrom(const AABB& other);
 	// 攻撃命中時の反動
 	void ApplyRecoil(float distance);
 
@@ -153,17 +153,17 @@ private:
 	bool isAttackUp_ = false;
 
 	// ==== 剣 ====
-	static inline const float kSwordLength = 1.6f;                      // 刀身の長さ（モデルの先端 Y=1.6）
-	static inline const float kSwordThickness = 0.3f;                   // 判定の太さ
-	static inline const Vector3 kSwordPivotOffset = {0.3f, 0.1f, 0.0f}; // 持ち手の位置（右向き基準）
-	static inline const float kSwordRestDegrees = -30.0f;               // 構える前の角度
-
+	static inline const float kSwordScale = 1.5f;                       // 剣の大きさ倍率（追加）
+	static inline const float kSwordLength = 1.6f * kSwordScale;        // 刀身の長さ（変更）
+	static inline const float kSwordThickness = 0.3f * kSwordScale;     // 判定の太さ（変更）
+	static inline const Vector3 kSwordPivotOffset = {0.4f, 0.1f, 0.0f}; // 持ち手の位置（0.3f→0.4f）
+	static inline const float kSwordRestDegrees = -30.0f;
 	// ==== コンボ攻撃 ====
 	static inline const int32_t kMaxComboStep = 3;
 	static inline const float kComboChargeTimes[kMaxComboStep] = {0.08f, 0.05f, 0.12f};
-	static inline const float kComboSwingTimes[kMaxComboStep] = {0.12f, 0.12f, 0.2f};
-	static inline const float kComboAfterglowTimes[kMaxComboStep] = {0.1f, 0.12f, 0.2f};
-	static inline const float kComboLungeSpeeds[kMaxComboStep] = {0.08f, 0.08f, 0.15f}; // 踏み込み
+	static inline const float kComboSwingTimes[kMaxComboStep] = {0.16f, 0.16f, 0.25f};
+	static inline const float kComboAfterglowTimes[kMaxComboStep] = {0.12f, 0.14f, 0.22f};
+	static inline const float kComboLungeSpeeds[kMaxComboStep] = {0.18f, 0.18f, 0.3f}; // 踏み込み
 	// 剣の角度（度）。0=真上、-90=前方、-180=真下。右向き基準で、左向きは自動で反転
 	static inline const float kSwordStartDegrees[kMaxComboStep] = {40.0f, -140.0f, 60.0f}; // 袈裟斬り → 切り上げ → 大振り
 	static inline const float kSwordEndDegrees[kMaxComboStep] = {-130.0f, 10.0f, -150.0f};
@@ -183,7 +183,7 @@ private:
 	static inline const float kCounterLungeSpeed = 0.45f;       // 突進の速さ（敵を貫通する）
 	static inline const float kCounterSwordDegree = -90.0f;     // 突き：剣を正面に向けたまま
 	static inline const float kCounterPullBack = 0.3f;          // 突く前に剣を引く距離
-	static inline const float kCounterReach = 0.4f;             // 突き出した時の剣の前進量
+	static inline const float kCounterReach = 0.8f;             // 突き出した時の剣の前進量
 	static inline const float kCounterSwordYOffset = -0.2f;     // 突きの時だけ剣を下げる量（マイナスで下がる）
 	static inline const float kCounterEndInvincibleTime = 0.5f; // 突き終わり後の無敵時間
 	static inline const int32_t kCounterDamage = 3;
@@ -210,6 +210,9 @@ private:
 	ObjectColor objectColor_;
 	static inline const float kGuardFlashSpeed = 15.0f;     // 点滅の速さ
 	static inline const float kGuardFlashBrightness = 5.0f; // 白く見せるための乗算値
+
+	static inline const float kGuardKnockbackDistance = 1.0f; // ガードで後ろに下がる距離
+	static inline const float kGuardEndInvincibleTime = 0.5f; // ガード解除後に付く無敵時間
 
 	Vector3 velocity_{};
 	Behavior behavior_ = Behavior::kRoot;
@@ -278,6 +281,17 @@ private:
 	uint32_t soundHandleDamage_ = 0;
 	uint32_t soundHandleJustGuard_ = 0;
 	uint32_t soundHandleJump_ = 0;
+
+	// 当たり判定をしながら横に動く
+	void MoveHorizontal(float dx);
+	// velocity_ どおりに動いて、マップとの当たり判定をして、行列を更新する
+	void MoveWithCollision();
+	// 死亡処理（HP0・死亡フラグ・爆発パーティクル）
+	void Die();
+	// HPアイコンの色を今のHPに合わせる
+	void UpdateHpSprites();
+	// ガードキーが押されているか（左右どちらのShiftでも可）
+	static bool IsGuardKeyPressed();
 
 	void TakeDamage();
 	void OnJustGuardSuccess();

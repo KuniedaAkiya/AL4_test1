@@ -1,7 +1,27 @@
 #include "GameScene.h"
 #include "MatrixFunction.h"
+#include <cstdlib>
 
 using namespace KamataEngine;
+
+namespace {
+// 0.0〜1.0 の乱数
+float Rand01() { return static_cast<float>(rand()) / RAND_MAX; }
+
+// 全部更新して、消えたものを削除する
+template<typename T> void UpdateAndRemoveDead(std::list<T*>& list) {
+	for (T* item : list) {
+		item->Update();
+	}
+	list.remove_if([](T* item) {
+		if (item->IsDead()) {
+			delete item;
+			return true;
+		}
+		return false;
+	});
+}
+} // namespace
 
 GameScene::~GameScene() {
 	Audio::GetInstance()->StopWave(bgmPlayHandle_);
@@ -187,17 +207,7 @@ void GameScene::Update() {
 			boss_->Update();
 		}
 
-		for (Enemy* enemy : enemies_) {
-			enemy->Update();
-		}
-
-		enemies_.remove_if([](Enemy* enemy) {
-			if (enemy->IsDead()) {
-				delete enemy;
-				return true;
-			}
-			return false;
-		});
+		UpdateAndRemoveDead(enemies_);
 
 		CheckAllCollisions();
 
@@ -219,30 +229,9 @@ void GameScene::Update() {
 		break;
 	}
 
-	// ★ プレイ中・死亡中を問わず、ガードエフェクトとパーティクルを常に更新・削除する
-	for (GuardEffect* guardEffect : guardEffects_) {
-		guardEffect->Update();
-	}
-
-	guardEffects_.remove_if([](GuardEffect* guardEffect) {
-		if (guardEffect->IsDead()) {
-			delete guardEffect;
-			return true;
-		}
-		return false;
-	});
-
-	for (Particle* particle : particles_) {
-		particle->Update();
-	}
-
-	particles_.remove_if([](Particle* particle) {
-		if (particle->IsDead()) {
-			delete particle;
-			return true;
-		}
-		return false;
-	});
+	// プレイ中・死亡中を問わず、ガードエフェクトとパーティクルを常に更新・削除する
+	UpdateAndRemoveDead(guardEffects_);
+	UpdateAndRemoveDead(particles_);
 
 	UpdateCommon();
 }
@@ -280,7 +269,7 @@ void GameScene::CheckAllCollisions() {
 		if (IsCollisionAABB(aabb1, aabbBoss)) {
 			player_->OnCollision(boss_);
 			if (player_->IsGuard()) {
-				player_->PushOutFrom(aabbBoss);
+				player_->OnGuardHit(aabbBoss);
 			}
 
 			if (!player_->IsAttack()) {
@@ -314,7 +303,7 @@ void GameScene::CheckAllCollisions() {
 		if (IsCollisionAABB(player_->GetAABB(), enemyAabb)) {
 			player_->OnCollision(enemy);
 			if (player_->IsGuard()) {
-				player_->PushOutFrom(enemyAabb);
+				player_->OnGuardHit(enemyAabb);
 			}
 			if (!player_->IsAttack()) {
 				enemy->OnCollision(player_);
@@ -383,14 +372,21 @@ void GameScene::ChangePhase() {
 	}
 }
 
+// パーティクルを1つ生成してリストに追加する
+void GameScene::AddParticle(const Particle::Parameter& param) {
+	Particle* particle = new Particle();
+	particle->Initialize(param);
+	particles_.push_back(particle);
+}
+
 // 攻撃ヒット時の演出（Particleを使用）
 void GameScene::CreateHitEffect(const Vector3& position) {
 	for (int i = 0; i < 5; ++i) {
 		Particle::Parameter param;
 		param.position = position;
 
-		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.2f;
-		float vy = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.2f;
+		float vx = (Rand01() - 0.5f) * 0.2f;
+		float vy = (Rand01() - 0.5f) * 0.2f;
 		param.velocity = {vx, vy, 0.0f};
 
 		param.startScale = {0.2f, 0.2f, 0.2f};
@@ -399,39 +395,11 @@ void GameScene::CreateHitEffect(const Vector3& position) {
 		param.endColor = {1.0f, 0.8f, 0.2f, 0.0f};   // 黄色フェード
 		param.lifeTime = 10 + rand() % 5;
 
-		Particle* particle = new Particle();
-		particle->Initialize(param);
-		particles_.push_back(particle);
+		AddParticle(param);
 	}
 }
 
-void GameScene::CreateGuardEffect(const Vector3& position) {
-	GuardEffect* newGuardEffect = GuardEffect::Create(position);
-	guardEffects_.push_back(newGuardEffect);
-}
-
-// 撃破時の演出（Particleを使用）
-void GameScene::CreateDeathParticles(const Vector3& position) {
-	for (int i = 0; i < 12; ++i) {
-		Particle::Parameter param;
-		param.position = position;
-
-		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.3f;
-		float vy = (static_cast<float>(rand()) / RAND_MAX - 0.2f) * 0.4f;
-		param.velocity = {vx, vy, 0.0f};
-		param.accel = {0.0f, -0.01f, 0.0f}; // 重力
-
-		param.startScale = {0.3f, 0.3f, 0.3f};
-		param.endScale = {0.0f, 0.0f, 0.0f};
-		param.startColor = {1.0f, 0.8f, 0.2f, 1.0f}; // 黄色
-		param.endColor = {1.0f, 0.2f, 0.0f, 0.0f};   // 赤フェードアウト
-		param.lifeTime = 20 + rand() % 10;
-
-		Particle* particle = new Particle();
-		particle->Initialize(param);
-		particles_.push_back(particle);
-	}
-}
+void GameScene::CreateGuardEffect(const Vector3& position) { guardEffects_.push_back(GuardEffect::Create(position)); }
 
 void GameScene::UpdateBossRoom() {
 	const bool inBossRoom = stage_->IsInBossRoom(player_->GetWorldPosition().x);
@@ -458,8 +426,8 @@ void GameScene::CreateSlashParticles(const Vector3& position, bool isRightDirect
 		param.position = position;
 		param.position.x += dir * 0.3f;
 
-		float angle = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 1.2f;
-		float speed = 0.15f + (static_cast<float>(rand()) / RAND_MAX) * 0.1f;
+		float angle = (Rand01() - 0.5f) * 1.2f;
+		float speed = 0.15f + Rand01() * 0.1f;
 		param.velocity = {dir * std::cos(angle) * speed, std::sin(angle) * speed, 0.0f};
 
 		param.startScale = {0.15f, 0.15f, 0.15f};
@@ -468,9 +436,7 @@ void GameScene::CreateSlashParticles(const Vector3& position, bool isRightDirect
 		param.endColor = {0.0f, 0.2f, 1.0f, 0.0f};
 		param.lifeTime = 8 + rand() % 6;
 
-		Particle* particle = new Particle();
-		particle->Initialize(param);
-		particles_.push_back(particle);
+		AddParticle(param);
 	}
 }
 
@@ -480,8 +446,8 @@ void GameScene::CreateHitParticles(const Vector3& position) {
 		Particle::Parameter param;
 		param.position = position;
 
-		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.35f;
-		float vy = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.35f;
+		float vx = (Rand01() - 0.5f) * 0.35f;
+		float vy = (Rand01() - 0.5f) * 0.35f;
 		param.velocity = {vx, vy, 0.0f};
 
 		param.startScale = {0.25f, 0.25f, 0.25f};
@@ -490,9 +456,7 @@ void GameScene::CreateHitParticles(const Vector3& position) {
 		param.endColor = {1.0f, 0.3f, 0.0f, 0.0f};   // オレンジフェード
 		param.lifeTime = 10 + rand() % 6;
 
-		Particle* particle = new Particle();
-		particle->Initialize(param);
-		particles_.push_back(particle);
+		AddParticle(param);
 	}
 }
 
@@ -502,8 +466,8 @@ void GameScene::CreateBossHitParticles(const Vector3& position, Model* model, ui
 		Particle::Parameter param;
 		param.position = position;
 
-		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.15f;
-		float vy = (static_cast<float>(rand()) / RAND_MAX) * 0.2f + 0.05f; // やや上向き
+		float vx = (Rand01() - 0.5f) * 0.15f;
+		float vy = Rand01() * 0.2f + 0.05f; // やや上向き
 		param.velocity = {vx, vy, 0.0f};
 		param.accel = {0.0f, -0.012f, 0.0f}; // 重力で落ちる
 
@@ -514,9 +478,7 @@ void GameScene::CreateBossHitParticles(const Vector3& position, Model* model, ui
 		param.customModel = model;
 		param.customTextureHandle = textureHandle;
 
-		Particle* particle = new Particle();
-		particle->Initialize(param);
-		particles_.push_back(particle);
+		AddParticle(param);
 	}
 }
 
@@ -527,18 +489,18 @@ void GameScene::CreateSlimeExplosion(const Vector3& position, Model* model, uint
 		param.position = position;
 
 		// 全方向に勢いよく飛散（重力つき）
-		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.4f;
-		float vy = (static_cast<float>(rand()) / RAND_MAX - 0.2f) * 0.45f;
+		float vx = (Rand01() - 0.5f) * 0.4f;
+		float vy = (Rand01() - 0.2f) * 0.45f;
 		param.velocity = {vx, vy, 0.0f};
 		param.accel = {0.0f, -0.015f, 0.0f}; // 落下重力
 
 		// ランダム回転と回転速度
-		param.rotation = {0.0f, 0.0f, (static_cast<float>(rand()) / RAND_MAX) * 6.28f};
-		param.angularVelocity = {0.0f, 0.0f, (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.3f};
+		param.rotation = {0.0f, 0.0f, Rand01() * 6.28f};
+		param.angularVelocity = {0.0f, 0.0f, (Rand01() - 0.5f) * 0.3f};
 
 		// スライム特有の横潰れ・縦伸びのランダムスケール
-		float scaleRandX = baseScale * (0.6f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f);
-		float scaleRandY = baseScale * (0.6f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f);
+		float scaleRandX = baseScale * (0.6f + Rand01() * 0.8f);
+		float scaleRandY = baseScale * (0.6f + Rand01() * 0.8f);
 		param.startScale = {scaleRandX, scaleRandY, scaleRandX};
 		param.endScale = {0.0f, 0.0f, 0.0f};
 		param.lifeTime = 25 + rand() % 15;
@@ -547,32 +509,7 @@ void GameScene::CreateSlimeExplosion(const Vector3& position, Model* model, uint
 		param.customModel = model;
 		param.customTextureHandle = textureHandle;
 
-		Particle* particle = new Particle();
-		particle->Initialize(param);
-		particles_.push_back(particle);
-	}
-}
-
-// プレイヤー死亡パーティクル
-void GameScene::CreatePlayerDeathParticles(const Vector3& position) {
-	for (int i = 0; i < 25; ++i) {
-		Particle::Parameter param;
-		param.position = position;
-
-		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.25f;
-		float vy = (static_cast<float>(rand()) / RAND_MAX) * 0.35f + 0.1f; // 上方へ舞い上がる
-		param.velocity = {vx, vy, 0.0f};
-		param.accel = {0.0f, -0.003f, 0.0f};
-
-		param.startScale = {0.3f, 0.3f, 0.3f};
-		param.endScale = {0.0f, 0.0f, 0.0f};
-		param.startColor = {0.3f, 0.7f, 1.0f, 1.0f}; // プレイヤーカラー（青白）
-		param.endColor = {0.8f, 0.9f, 1.0f, 0.0f};
-		param.lifeTime = 30 + rand() % 20;
-
-		Particle* particle = new Particle();
-		particle->Initialize(param);
-		particles_.push_back(particle);
+		AddParticle(param);
 	}
 }
 

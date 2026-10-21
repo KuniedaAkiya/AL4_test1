@@ -66,8 +66,6 @@ public:
 
 private:
 	// ==== 音の大きさ設定 ====
-	// BGMの音量（0.0〜1.0）
-	static inline const float kBGMVolume = 0.2f;
 	// 効果音の音量（0.0〜1.0）
 	static inline const float kSEVolume = 0.4f;
 
@@ -145,7 +143,6 @@ private:
 	static inline const float kDashTime = 0.3f;
 	// 突進の速さ
 	static inline const float kDashSpeed = 0.6f;
-
 	// ジャンプ前の溜めの時間（秒）
 	static inline const float kJumpChargeTime = 0.4f;
 	// ジャンプの初速（上方向）

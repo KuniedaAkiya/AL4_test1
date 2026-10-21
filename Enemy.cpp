@@ -14,9 +14,6 @@ void Enemy::Initialize(Model* model, Camera* camera, uint32_t textureHandle, con
 	camera_ = camera;
 	enemyTextureHandle_ = textureHandle;
 
-	// 復活時に戻る座標として記録
-	spawnPosition_ = position;
-
 	// ワールドトランスフォームの初期化
 	worldTransform_.Initialize();
 	worldTransform_.translation_ = position;
@@ -25,8 +22,7 @@ void Enemy::Initialize(Model* model, Camera* camera, uint32_t textureHandle, con
 	velocity_ = {0.0f, 0.0f, 0.0f};
 	isActivated_ = false;
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldTransform();
 }
 
 void Enemy::Update() {
@@ -97,6 +93,12 @@ AABB Enemy::GetAABB() {
 
 // ==== 内部処理用関数 ====
 
+// ワールド行列を更新する
+void Enemy::UpdateWorldTransform() {
+	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
+	worldTransform_.TransferMatrix();
+}
+
 // 歩行状態の更新（画面に入ったら動作・壁/棘/穴で反転・重力接地）
 void Enemy::BehaviorWalkUpdate() {
 	// プレイヤーが近づいて（画面内に入って）いなければ動かない
@@ -107,8 +109,7 @@ void Enemy::BehaviorWalkUpdate() {
 				isActivated_ = true; // 画面内に入ったので起動
 			}
 		}
-		worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-		worldTransform_.TransferMatrix();
+		UpdateWorldTransform();
 		return;
 	}
 
@@ -182,8 +183,7 @@ void Enemy::BehaviorWalkUpdate() {
 		worldTransform_.rotation_.y = std::numbers::pi_v<float> * (1.0f / 2.0f);
 	}
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldTransform();
 }
 
 // デス演出状態の更新
@@ -198,8 +198,7 @@ void Enemy::BehaviorDeathUpdate() {
 
 	float t = std::clamp(deathTimer_ / kDeathTime, 0.0f, 1.0f);
 	worldTransform_.scale_ = {(1.0f - t) * 0.8f, (1.0f - t) * 0.8f, (1.0f - t) * 0.8f};
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldTransform();
 
 	if (deathTimer_ >= kDeathTime) {
 		isDead_ = true;
@@ -213,8 +212,7 @@ void Enemy::BehaviorStaggerUpdate() {
 	worldTransform_.translation_ += velocity_;
 	velocity_ *= (1.0f - kStaggerAttenuation);
 
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-	worldTransform_.TransferMatrix();
+	UpdateWorldTransform();
 
 	if (staggerTimer_ >= kStaggerTime) {
 		behaviorRequest_ = Behavior::kWalk;
