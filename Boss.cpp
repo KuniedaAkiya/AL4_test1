@@ -9,6 +9,7 @@
 
 // デストラクタ
 Boss::~Boss() {
+	delete hpBarDelaySprite_;
 	delete hpBarFrameSprite_;
 	delete hpBarGaugeSprite_;
 }
@@ -40,6 +41,14 @@ void Boss::Initialize(Model* model, Camera* camera, uint32_t textureHandle, cons
 	hasRevived_ = false;
 
 	uint32_t hpGaugeTextureHandle = TextureManager::Load("UI/bossHPGauge.png");
+
+	// 遅れて減るゲージ（HPゲージと同じ画像を、赤っぽい色で重ねる）
+	hpBarDelaySprite_ = Sprite::Create(hpGaugeTextureHandle, kHpBarPosition);
+	hpBarDelaySprite_->SetSize({kHpBarWidth, kHpBarHeight});
+	hpBarDelaySprite_->SetColor(kHpDelayColor);
+	hpDelayRate_ = 1.0f;
+	hpDelayTimer_ = 0.0f;
+
 	hpBarGaugeSprite_ = Sprite::Create(hpGaugeTextureHandle, kHpBarPosition);
 	hpBarGaugeSprite_->SetSize({kHpBarWidth, kHpBarHeight});
 
@@ -113,6 +122,22 @@ void Boss::Update() {
 		// HPの残り割合（0.0〜1.0）。HPバーの長さに使う
 		float rate = std::clamp(static_cast<float>(hp_) / static_cast<float>(kMaxHP), 0.0f, 1.0f);
 		hpBarGaugeSprite_->SetSize({kHpBarWidth * rate, kHpBarHeight});
+
+		// 遅れて減るゲージの更新
+		if (rate > hpDelayRate_) {
+			// 回復（復活）した時は、すぐに追いつかせる
+			hpDelayRate_ = rate;
+		} else if (rate < hpDelayRate_) {
+			if (hpDelayTimer_ > 0.0f) {
+				// ダメージ直後は、少しの間そのまま見せる
+				hpDelayTimer_ -= 1.0f / 60.0f;
+			} else {
+				hpDelayRate_ = (std::max)(rate, hpDelayRate_ - kHpDelaySpeed);
+			}
+		}
+		if (hpBarDelaySprite_) {
+			hpBarDelaySprite_->SetSize({kHpBarWidth * hpDelayRate_, kHpBarHeight});
+		}
 	}
 }
 
@@ -129,6 +154,9 @@ void Boss::Draw() {
 void Boss::DrawUI() {
 	if (isDead_)
 		return;
+	// 遅れゲージはHPゲージの後ろ（先に描く）
+	if (hpBarDelaySprite_)
+		hpBarDelaySprite_->Draw();
 	if (hpBarGaugeSprite_)
 		hpBarGaugeSprite_->Draw();
 	if (hpBarFrameSprite_)
@@ -163,6 +191,26 @@ void Boss::TakeDamage(int32_t damage, bool isAttackUp) {
 
 	hp_ -= damage;
 	damageCooldown_ = kDamageCooldownTime;
+	// 遅れゲージは、少し待ってから減り始める
+	hpDelayTimer_ = kHpDelayWaitTime;
+
+	// ヒットストップ・スロー演出
+	if (gameScene_) {
+		const bool isFinish = (hp_ <= 0 && hasRevived_);
+		if (isFinish) {
+			// 撃破の一撃：長めに止めてから、スローで見せる
+			gameScene_->RequestHitStop(kHitStopFinish);
+			gameScene_->RequestSlow(kSlowFinish);
+		} else if (damage >= 3) {
+			// カウンター命中
+			gameScene_->RequestHitStop(kHitStopStrong);
+			gameScene_->RequestSlow(kSlowCounter);
+		} else if (damage == 2) {
+			gameScene_->RequestHitStop(kHitStopMedium);
+		} else {
+			gameScene_->RequestHitStop(kHitStopWeak);
+		}
+	}
 
 	if (hp_ <= 0) {
 		isCollisionDisabled_ = true;
@@ -190,7 +238,13 @@ void Boss::OnCollision(Player* player) {
 	bool isAttackUp = player->IsAttackUp();
 	// プレイヤーの今の攻撃のダメージ量
 	int32_t damage = player->GetAttackDamage();
+	// ヒットを記録する（プレイヤー側で、当てた時の無敵も付く）
 	player->MarkAttackHit();
+
+	// 攻撃ヒットの反動でプレイヤーを少し後ろに下げる（カウンター時を除く）
+	if (!player->IsCounterAttack()) {
+		player->ApplyRecoil(1.1f); // 1.5f はノックバック距離（お好みで調整してください）
+	}
 
 	if (isAttackUp) {
 		player->ClearAttackUp();
@@ -199,7 +253,12 @@ void Boss::OnCollision(Player* player) {
 	if (gameScene_) {
 		// ヒットエフェクトを出す位置（ボスとプレイヤーの中間）
 		Vector3 effectPos = (GetWorldPosition() + player->GetWorldPosition()) / 2.0f;
-		gameScene_->CreateHitEffect(effectPos);
+
+		// 1. 通常攻撃ヒットパーティクル（鋭い火花）
+		gameScene_->CreateHitParticles(effectPos);
+
+		// 2. ボス被弾パーティクル（スライムの体液・粒が少しポロポロ飛散する）
+		gameScene_->CreateBossHitParticles(effectPos, model_, textureHandle_);
 	}
 
 	if (cameraController_) {
@@ -390,13 +449,20 @@ void Boss::BehaviorDeathInitialize() {
 	velocity_ = {};
 }
 
-// 撃破演出の更新
+// 撃破演出の更新（スライム大爆発パーティクル追加）
 void Boss::BehaviorDeathUpdate() {
 	deathTimer_ += 1.0f / 60.0f;
+
+	// ★撃破開始直後の1フレーム目にボス（スライム）の大爆発パーティクルを生成
+	if (deathTimer_ <= 1.0f / 60.0f && gameScene_) {
+		// 共通関数を呼び出し（モデル: model_, テクスチャ: textureHandle_, スケール: 0.5f, 個数: 35）
+		gameScene_->CreateSlimeExplosion(GetWorldPosition(), model_, textureHandle_, 0.5f, 35);
+	}
+
 	// 撃破演出の進み具合
 	float t = std::clamp(deathTimer_ / kDeathTime, 0.0f, 1.0f);
 
-	// 　シェイク
+	// シェイク
 	if (cameraController_) {
 		cameraController_->RequestShake(CameraController::ShakeType::kContinuous);
 	}

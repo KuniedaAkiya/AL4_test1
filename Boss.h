@@ -1,8 +1,8 @@
 #pragma once
 #include "KamataEngine.h"
+#include "MatrixFunction.h"
 
 using namespace KamataEngine;
-
 class Player;
 class GameScene;
 class CameraController;
@@ -162,6 +162,26 @@ private:
 	Sprite* hpBarGaugeSprite_ = nullptr;
 	// HPバーの枠
 	Sprite* hpBarFrameSprite_ = nullptr;
+	// HPバーの後ろで、遅れて減っていくゲージ（減った分が見える）
+	Sprite* hpBarDelaySprite_ = nullptr;
+	// 遅れて減るゲージの今の割合（0.0〜1.0）
+	float hpDelayRate_ = 1.0f;
+	// ダメージを受けてから、遅れゲージが減り始めるまでの残り時間（秒）
+	float hpDelayTimer_ = 0.0f;
+	// 遅れゲージが減り始めるまでの待ち時間（秒）
+	static inline const float kHpDelayWaitTime = 0.5f;
+	// 遅れゲージが1フレームで減る割合
+	static inline const float kHpDelaySpeed = 0.01f;
+	// 遅れゲージの色（ゲージ画像にかけて、赤っぽく見せる）
+	static inline const Vector4 kHpDelayColor = {1.0f, 0.25f, 0.25f, 1.0f};
+
+	// ==== ヒットストップ・スロー演出（フレーム数） ====
+	static inline const int32_t kHitStopWeak = 3;    // 通常ヒット
+	static inline const int32_t kHitStopMedium = 5;  // ダメージ2
+	static inline const int32_t kHitStopStrong = 7;  // ダメージ3（カウンター）
+	static inline const int32_t kHitStopFinish = 12; // 撃破の一撃
+	static inline const int32_t kSlowCounter = 40;   // カウンター命中のスロー
+	static inline const int32_t kSlowFinish = 100;   // 撃破のスロー
 	// HPバーの表示位置
 	static inline const Vector2 kHpBarPosition = {400.0f, 40.0f};
 	// HPバーの最大の幅

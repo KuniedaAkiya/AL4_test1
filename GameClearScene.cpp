@@ -6,7 +6,6 @@ using namespace KamataEngine;
 GameClearScene::~GameClearScene() {
 	// ★ シーン破棄時にBGMを停止
 	Audio::GetInstance()->StopWave(bgmPlayHandle_);
-	Audio::GetInstance()->StopWave(bgmGameClearHandle_);
 
 	delete model_;
 	delete retryModel_;

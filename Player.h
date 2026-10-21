@@ -83,8 +83,8 @@ public:
 	void BehaviorGuardInitialize();
 	void BehaviorGuardUpdate();
 
-	bool IsAttack() const;
-	void RequestKnockback();
+	bool IsAttack() const { return behavior_ == Behavior::kAttack; }
+	void RequestKnockback() { isKnockbackRequested_ = true; }
 	int32_t GetHP() const { return hp_; }
 	int32_t GetMaxHP() const { return kMaxHP; }
 	void DrawUI();
@@ -102,8 +102,14 @@ public:
 	int32_t GetAttackDamage() const;
 	// 1回の攻撃（1段）につき1ヒットだけにするための判定
 	bool HasAttackHit() const { return attackHit_; }
-	void MarkAttackHit() { attackHit_ = true; }
+	void MarkAttackHit();
 	void ClearAttackUp() { isAttackUp_ = false; }
+	// 無敵を付ける（今の残り時間より長い時だけ上書き）
+	void GrantInvincible(float seconds);
+	// 棘（ダメージ床）に触れた時の処理。無敵中は何もしない。ガードでは防げない
+	void OnHazardHit();
+	// 上向きに打ち上げる（ジャンプ台）。power は上向きの初速
+	void Launch(float power);
 	void SetGameScene(GameScene* gameScene) { gameScene_ = gameScene; }
 	// 剣の当たり判定が有効か（振っている間だけ true）
 	bool IsSwordActive() const { return behavior_ == Behavior::kAttack && attackPhase_ == AttackPhase::kSwing; }
@@ -111,6 +117,8 @@ public:
 	AABB GetSwordAABB() const;
 	// 他の物体（敵・ボス）のAABBと重なっている分だけ横に押し出される
 	void PushOutFrom(const AABB& other);
+	// 攻撃命中時の反動
+	void ApplyRecoil(float distance);
 
 	// TPチップに触れたかどうか（確認と同時に、要求を消す）
 	bool ConsumeTeleportRequest() {
@@ -136,6 +144,8 @@ private:
 	bool isJustGuardSuccess_ = false;
 	bool hasJustGuarded_ = false;
 	GameScene* gameScene_ = nullptr;
+
+	static inline const float kFallDeathY = -2.0f; // 落下即死となるY座標の限界値
 
 	static inline const float kJustGuardWindowTime = 0.15f;
 	static inline const float kJustGuardBonusInvincibleTime = 0.6f;
@@ -163,6 +173,8 @@ private:
 	bool isComboContinue_ = false;    // 次段へ繋ぐ再突入かどうか
 	bool attackHit_ = false;          // この1段の攻撃でヒット済みか
 
+	// 攻撃が当たった時に付ける無敵時間（秒）
+	static inline const float kHitInvincibleTime = 0.3f;
 	// ==== カウンター攻撃 ====
 	static inline const float kCounterWindowTime = 1.0f; // ジャスガ成功後に反撃できる時間
 	static inline const float kCounterChargeTime = 0.08f;
@@ -228,6 +240,7 @@ private:
 	static inline const float kAttenuation = 0.5f;
 	static inline const float kLimitRunSpeed = 0.2f;
 	static inline const float kTimeTurn = 0.3f;
+	static inline const float kAirAcceleration = 0.005f;
 
 	static inline const float kGravityAcceleration = 0.07f;
 	static inline const float kLimitFallSpeed = 0.5f;

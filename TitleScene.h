@@ -18,12 +18,28 @@ private:
 	bool finished_ = false;
 	IScene::Next nextScene_ = IScene::Next::kNone;
 
-	// 音声ハンドル ★追記
+	// 音声ハンドル
 	uint32_t soundHandleBGM_ = 0;
 	uint32_t bgmPlayHandle_ = 0; // 再生中BGM停止用
 
 	// カメラ
 	Camera camera_{};
+
+	// ===== タイトルの動き =====
+	// 経過時間（秒）
+	float animTimer_ = 0.0f;
+	// ロゴの基準位置（この位置を中心に上下にゆれる）
+	static inline const float kTitleBaseY = 2.0f;
+	// ロゴのゆれの大きさ
+	static inline const float kTitleFloatAmplitude = 0.4f;
+	// ロゴのゆれの速さ（ラジアン/秒）
+	static inline const float kTitleFloatSpeed = 2.0f;
+	// 「スペースで決定」の点滅の速さ（ラジアン/秒）
+	static inline const float kBlinkSpeed = 4.0f;
+	// 点滅の一番暗い時の透明度
+	static inline const float kBlinkMinAlpha = 0.25f;
+	// 点滅用の色
+	ObjectColor spaceFontColor_;
 
 	// 3Dモデル・トランスフォーム
 	Model* titleFontModel_ = nullptr; // タイトルロゴ

@@ -3,6 +3,7 @@
 #include "MatrixFunction.h"
 #include "Player.h"
 #include <algorithm>
+#include <cmath>
 #include <numbers>
 
 // デストラクタ
@@ -22,6 +23,7 @@ void Enemy::Initialize(Model* model, Camera* camera, uint32_t textureHandle, con
 	worldTransform_.rotation_.y = std::numbers::pi_v<float> * (3.0f / 2.0f);
 
 	velocity_ = {0.0f, 0.0f, 0.0f};
+	isActivated_ = false;
 
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
 	worldTransform_.TransferMatrix();
@@ -35,11 +37,7 @@ void Enemy::Update() {
 		// 遷移時の初期化処理
 		switch (behavior_) {
 		case Behavior::kWalk:
-			// 待機状態へのリセット（見た目と座標を初期状態に戻す）
 			velocity_ = {0.0f, 0.0f, 0.0f};
-			worldTransform_.translation_ = spawnPosition_;
-			worldTransform_.rotation_ = {0.0f, std::numbers::pi_v<float> * (3.0f / 2.0f), 0.0f};
-			worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
 			isCollisionDisabled_ = false;
 			break;
 
@@ -50,10 +48,6 @@ void Enemy::Update() {
 
 		case Behavior::kStagger:
 			staggerTimer_ = 0.0f;
-			break;
-
-		case Behavior::kRespawnWait:
-			respawnTimer_ = 0.0f;
 			break;
 		}
 		behaviorRequest_ = Behavior::kUnknown;
@@ -70,15 +64,12 @@ void Enemy::Update() {
 	case Behavior::kStagger:
 		BehaviorStaggerUpdate();
 		break;
-	case Behavior::kRespawnWait:
-		BehaviorRespawnWaitUpdate();
-		break;
 	}
 }
 
 void Enemy::Draw() {
-	// 復活待ち中は非表示
-	if (behavior_ == Behavior::kRespawnWait) {
+	// 消えた後は描画しない
+	if (isDead_) {
 		return;
 	}
 	if (model_ && camera_) {
@@ -106,8 +97,91 @@ AABB Enemy::GetAABB() {
 
 // ==== 内部処理用関数 ====
 
-// 待機状態の更新（動かず行列計算のみ行う）
+// 歩行状態の更新（画面に入ったら動作・壁/棘/穴で反転・重力接地）
 void Enemy::BehaviorWalkUpdate() {
+	// プレイヤーが近づいて（画面内に入って）いなければ動かない
+	if (!isActivated_) {
+		if (player_) {
+			float diffX = std::abs(worldTransform_.translation_.x - player_->GetWorldPosition().x);
+			if (diffX <= kActivateDistance) {
+				isActivated_ = true; // 画面内に入ったので起動
+			}
+		}
+		worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
+		worldTransform_.TransferMatrix();
+		return;
+	}
+
+	// 1. 重力処理（空中浮遊防止）
+	velocity_.y -= kGravity;
+
+	// 下方向の接地判定
+	if (mapChipField_) {
+		Vector3 bottomPos = worldTransform_.translation_;
+		bottomPos.y += velocity_.y - (kHeight / 2.0f);
+
+		MapChipField::IndexSet indexBottom = mapChipField_->GetMapChipIndexByPosition(bottomPos);
+		MapChipType typeBottom = mapChipField_->GetMapChipTypeByIndex(indexBottom.xIndex, indexBottom.yIndex);
+
+		if (typeBottom == MapChipType::kBlock && velocity_.y < 0.0f) {
+			// 着地
+			MapChipField::Rect rect = mapChipField_->GetRectByIndex(indexBottom.xIndex, indexBottom.yIndex);
+			worldTransform_.translation_.y = rect.top + kHeight / 2.0f;
+			velocity_.y = 0.0f;
+		} else {
+			worldTransform_.translation_.y += velocity_.y;
+		}
+	} else {
+		worldTransform_.translation_.y += velocity_.y;
+	}
+
+	// 2. 移動と反転判定（壁・棘・足場の途切れ）
+	if (mapChipField_) {
+		// ① 進行方向の前方の壁・棘チェック
+		Vector3 frontPos = worldTransform_.translation_;
+		frontPos.x += moveDirection_ * (kWidth / 2.0f + 0.1f);
+
+		Vector3 checkTop = {frontPos.x, worldTransform_.translation_.y + kHeight / 2.0f - 0.1f, frontPos.z};
+		Vector3 checkBottom = {frontPos.x, worldTransform_.translation_.y - kHeight / 2.0f + 0.1f, frontPos.z};
+
+		MapChipField::IndexSet idxTop = mapChipField_->GetMapChipIndexByPosition(checkTop);
+		MapChipField::IndexSet idxBottom = mapChipField_->GetMapChipIndexByPosition(checkBottom);
+
+		MapChipType typeTop = mapChipField_->GetMapChipTypeByIndex(idxTop.xIndex, idxTop.yIndex);
+		MapChipType typeBottom = mapChipField_->GetMapChipTypeByIndex(idxBottom.xIndex, idxBottom.yIndex);
+
+		// ② 進行方向の足元（1マス下）のチェック（穴や棘の確認）
+		Vector3 footPos = worldTransform_.translation_;
+		footPos.x += moveDirection_ * (kWidth / 2.0f + 0.1f);
+		footPos.y -= (kHeight / 2.0f + 0.3f);
+
+		MapChipField::IndexSet idxFoot = mapChipField_->GetMapChipIndexByPosition(footPos);
+		MapChipType typeFoot = mapChipField_->GetMapChipTypeByIndex(idxFoot.xIndex, idxFoot.yIndex);
+
+		// 【条件】「前方が壁(kBlock)」「前方が棘(kSpike)」「足元にブロック(kBlock)が無い（穴・棘など）」のいずれかで反転
+		bool isWall = (typeTop == MapChipType::kBlock || typeBottom == MapChipType::kBlock);
+		bool isSpike = (typeTop == MapChipType::kSpike || typeBottom == MapChipType::kSpike);
+		bool isNoGround = (typeFoot != MapChipType::kBlock);
+
+		if (isWall || isSpike || isNoGround) {
+			moveDirection_ *= -1.0f;
+			velocity_.x = 0.0f;
+		} else {
+			velocity_.x = kWalkSpeed * moveDirection_;
+			worldTransform_.translation_.x += velocity_.x;
+		}
+	} else {
+		velocity_.x = kWalkSpeed * moveDirection_;
+		worldTransform_.translation_.x += velocity_.x;
+	}
+
+	// 進行方向に応じた回転（左向き: 270度, 右向き: 90度）
+	if (moveDirection_ < 0.0f) {
+		worldTransform_.rotation_.y = std::numbers::pi_v<float> * (3.0f / 2.0f);
+	} else {
+		worldTransform_.rotation_.y = std::numbers::pi_v<float> * (1.0f / 2.0f);
+	}
+
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
 	worldTransform_.TransferMatrix();
 }
@@ -115,27 +189,20 @@ void Enemy::BehaviorWalkUpdate() {
 // デス演出状態の更新
 void Enemy::BehaviorDeathUpdate() {
 	deathTimer_ += 1.0f / 60.0f;
+
+	// デス演出の開始直後に爆発パーティクルを生成
+	if (deathTimer_ <= 1.0f / 60.0f && gameScene_) {
+		// 共通関数を呼び出し（モデル: bossModel_, テクスチャ: enemyTextureHandle_, スケール: 0.2f, 個数: 12）
+		gameScene_->CreateSlimeExplosion(GetWorldPosition(), model_, enemyTextureHandle_, 0.2f, 12);
+	}
+
 	float t = std::clamp(deathTimer_ / kDeathTime, 0.0f, 1.0f);
-
-	// 回転して小さくなりながら消える演出
-	worldTransform_.rotation_.y += 0.5f;
-	worldTransform_.rotation_.x = t * std::numbers::pi_v<float>;
-	worldTransform_.scale_ = {1.0f - t, 1.0f - t, 1.0f - t};
-
+	worldTransform_.scale_ = {(1.0f - t) * 0.8f, (1.0f - t) * 0.8f, (1.0f - t) * 0.8f};
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
 	worldTransform_.TransferMatrix();
 
-	// 演出完了後、復活待ちへ
 	if (deathTimer_ >= kDeathTime) {
-		behaviorRequest_ = Behavior::kRespawnWait;
-	}
-}
-
-// 復活待ち状態の更新（非表示で指定時間カウント）
-void Enemy::BehaviorRespawnWaitUpdate() {
-	respawnTimer_ += 1.0f / 60.0f;
-	if (respawnTimer_ >= kRespawnTime) {
-		behaviorRequest_ = Behavior::kWalk;
+		isDead_ = true;
 	}
 }
 
@@ -143,26 +210,22 @@ void Enemy::BehaviorRespawnWaitUpdate() {
 void Enemy::BehaviorStaggerUpdate() {
 	staggerTimer_ += 1.0f / 60.0f;
 
-	// 弾かれた速度で移動しつつ減衰
 	worldTransform_.translation_ += velocity_;
 	velocity_ *= (1.0f - kStaggerAttenuation);
 
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
 	worldTransform_.TransferMatrix();
 
-	// 時間経過で通常の待機状態へ復帰
 	if (staggerTimer_ >= kStaggerTime) {
 		behaviorRequest_ = Behavior::kWalk;
 	}
 }
 
 void Enemy::OnCollision(const Player* player) {
-	// すでにデス演出中・復活待ち中なら何もしない
-	if (behavior_ == Behavior::kDeath || behavior_ == Behavior::kRespawnWait) {
+	if (behavior_ == Behavior::kDeath || isDead_) {
 		return;
 	}
 
-	// プレイヤーが攻撃中ならデス演出へ移行
 	if (player->IsAttack()) {
 		behaviorRequest_ = Behavior::kDeath;
 		isCollisionDisabled_ = true;
@@ -170,11 +233,12 @@ void Enemy::OnCollision(const Player* player) {
 		if (gameScene_) {
 			Vector3 effectPos = (GetWorldPosition() + player->GetWorldPosition()) / 2.0f;
 			gameScene_->CreateHitEffect(effectPos);
+			gameScene_->RequestHitStop(kHitStopFrames);
+			gameScene_->RequestCameraShake(GameScene::ShakeType::kWeak);
 		}
 		return;
 	}
 
-	// プレイヤーにジャストガードされたら怯み状態へ移行
 	if (player->WasJustGuardSuccessful() && behavior_ != Behavior::kStagger) {
 		behaviorRequest_ = Behavior::kStagger;
 

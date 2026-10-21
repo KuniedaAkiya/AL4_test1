@@ -4,26 +4,25 @@
 using namespace KamataEngine;
 
 GameScene::~GameScene() {
-	// シーン終了（破棄）時に再生中および保持しているBGMを停止
 	Audio::GetInstance()->StopWave(bgmPlayHandle_);
 
 	delete playerModel_;
 	delete boss_;
 	delete bossModel_;
-	delete deathParticleModel_;
 	delete particleModel_;
 	delete modelAttack_;
 	delete player_;
 	delete fade_;
 	delete pauseGuideSprite_;
-	if (deathParticles_) {
-		delete deathParticles_;
-	}
-	for (HitEffect* hitEffect : hitEffects_) {
-		delete hitEffect;
-	}
+
 	for (GuardEffect* guardEffect : guardEffects_) {
 		delete guardEffect;
+	}
+	for (Enemy* enemy : enemies_) {
+		delete enemy;
+	}
+	for (Particle* particle : particles_) {
+		delete particle;
 	}
 	delete modelSkydome_;
 	delete skydome_;
@@ -33,45 +32,36 @@ GameScene::~GameScene() {
 }
 
 void GameScene::Initialize() {
-	// フェーズの初期化
 	phase_ = Phase::kFadeIn;
 
 	Audio* audio = Audio::GetInstance();
-
-	// 1. サウンドデータの読み込み
 	bgmBossHandle_ = audio->LoadWave("Audio/BGM_Boss_Phase1.mp3");
-
-	// 2. ボス戦フェーズ1のBGMを再生（第3引数は音量 0.0f～1.0f）
 	bgmPlayHandle_ = audio->PlayWave(bgmBossHandle_, true, 0.4f);
 
-	// テクスチャの読み込み
 	playerDataHandle_ = TextureManager::Load("player/player.png");
 	bossDataHandle_ = TextureManager::Load("boss/boss.png");
 
-	// 3Dモデルの生成
 	playerModel_ = Model::CreateFromOBJ("player", true);
 	bossModel_ = Model::CreateFromOBJ("boss", true);
 	modelSkydome_ = Model::CreateFromOBJ("SkyDome", true);
 	particleModel_ = Model::CreateFromOBJ("particle", true);
-	deathParticleModel_ = Model::CreateFromOBJ("deathParticle", true);
 	modelAttack_ = Model::CreateFromOBJ("Sword", true);
 
-	// マップチップフィールドの生成
 	stage_ = new Stage();
 	stage_->Initialize("Resources/Blocks.csv");
 
-	// インスタンスの生成
 	player_ = new Player();
 	skydome_ = new Skydome();
 	debugCamera_ = new DebugCamera(1280, 720);
 	fade_ = new Fade;
 
-	// フェーズの初期化
 	fade_->Initialize();
 	fade_->Start(Fade::Status::FadeIn, 1.0f);
 
-	// Player初期化
 	Vector3 playerPosition = stage_->GetPlayerSpawnPosition();
+	if (s_bossCheckpoint_) {
+		playerPosition = stage_->GetTeleportDestination();
+	}
 	player_->Initialize(playerModel_, modelAttack_, &camera_, playerDataHandle_, playerPosition);
 	player_->SetmapChipField(stage_->GetMapChipField());
 	player_->SetGameScene(this);
@@ -83,49 +73,60 @@ void GameScene::Initialize() {
 	boss_->SetGameScene(this);
 	boss_->SetTarget(player_);
 
-	// Skydome
+	MapChipField* mapChipField = stage_->GetMapChipField();
+	for (const MapChipField::IndexSet& index : mapChipField->FindAllMapChipIndex(MapChipType::kWalkEnemy)) {
+		Vector3 enemyPosition = mapChipField->GetMapChipPositionByIndex(static_cast<int32_t>(index.xIndex), static_cast<int32_t>(index.yIndex));
+		enemyPosition.y -= kEnemySpawnYOffset;
+
+		Enemy* enemy = new Enemy();
+		enemy->Initialize(bossModel_, &camera_, bossDataHandle_, enemyPosition);
+		enemy->SetmapChipField(mapChipField);
+		enemy->SetGameScene(this);
+		enemy->SetPlayer(player_);
+		enemies_.push_back(enemy);
+	}
+
 	skydome_->Initialize(modelSkydome_, &camera_);
 
-	// Camera
 	camera_.farZ = 1000.0f;
 	camera_.Initialize();
 
-	// ヒットエフェクト
-	HitEffect::SetModel(particleModel_);
-	HitEffect::SetCamera(&camera_);
-
-	GuardEffect::SetModel(particleModel_); // 同じパーティクルモデルを流用
+	// ガードエフェクトとパーティクルの設定
+	GuardEffect::SetModel(particleModel_);
 	GuardEffect::SetCamera(&camera_);
+
+	Particle::SetModel(particleModel_);
+	Particle::SetCamera(&camera_);
 
 	cameraController_ = new CameraController();
 	cameraController_->Initialize(&camera_);
-	cameraController_->SetMovableArea(stage_->GetStageCameraArea());
+	isInBossRoom_ = s_bossCheckpoint_;
+	isBossFightStarted_ = s_bossCheckpoint_;
+	if (s_bossCheckpoint_) {
+		skydome_->SetTargetColor(kBossFightSkyColor);
+	}
+	cameraController_->SetMovableArea(s_bossCheckpoint_ ? stage_->GetBossRoomCameraArea() : stage_->GetStageCameraArea());
 	cameraController_->SetTarget(player_);
 	cameraController_->Reset();
 
-	// シェイクを頼めるように、PlayerとBossにカメラを渡す
 	player_->SetCameraController(cameraController_);
 	boss_->SetCameraController(cameraController_);
 
-	// ポーズメニューの初期化
 	pauseMenu_.Initialize();
 	isPaused_ = false;
 
-	// ポーズ操作ガイドの初期化
 	pauseGuideTextureHandle_ = TextureManager::Load("UI/pauseGuide.png");
 	pauseGuideSprite_ = Sprite::Create(pauseGuideTextureHandle_, kPauseGuidePosition);
 	pauseGuideSprite_->SetSize(kPauseGuideSize);
 }
 
 void GameScene::Update() {
-	// ポーズを開く（Pキー）。ポーズ中のPの扱い（再開/メニューに戻る）はPauseMenu側に任せる
 	if (!isPaused_ && Input::GetInstance()->TriggerKey(DIK_P)) {
 		isPaused_ = true;
 		pauseMenu_.ResetSelection();
 	}
 
 	if (isPaused_) {
-		// 矢印キーでの選択・SPACEでの決定を処理する
 		PauseMenu::Action action = pauseMenu_.Update(isPaused_);
 		if (action == PauseMenu::Action::kToTitle) {
 			nextScene_ = IScene::Next::kTitle;
@@ -134,29 +135,39 @@ void GameScene::Update() {
 		}
 
 		if (isPaused_) {
-			// まだメニュー操作中（再開もタイトルへ戻るも選ばれていない）なら、これ以上更新しない
 			return;
 		}
 	}
 
-	// フェーズの切り替え判定
 	ChangePhase();
 
-	// 天球・敵はフェーズに関わらず（デス演出中も含めて）常に動かす仕様のため、switch文の外で共通更新する
+	if (phase_ == Phase::kPlay) {
+		if (hitStopFrames_ > 0) {
+			--hitStopFrames_;
+			UpdateCommon();
+			return;
+		}
+
+		if (slowFrames_ > 0) {
+			--slowFrames_;
+			if (slowFrames_ % 2 == 0) {
+				UpdateCommon();
+				return;
+			}
+		}
+	}
+
 	skydome_->Update();
 
-	// フェーズごとに異なる更新処理
 	switch (phase_) {
 	case Phase::kFadeIn:
 		fade_->Update();
-		// カメラコントローラー
 		cameraController_->Update();
 		break;
 
 	case Phase::kPlay:
 		player_->Update();
 
-		// TPチップに触れていたら、ボス部屋の入口へ移動させる
 		if (player_->ConsumeTeleportRequest()) {
 			WorldTransform& wt = player_->GetWorldTransform();
 			const Vector3 destination = stage_->GetTeleportDestination();
@@ -164,7 +175,6 @@ void GameScene::Update() {
 			wt.translation_.y = destination.y;
 			player_->GetVelocity() = {};
 
-			// 行列をすぐ反映する（Updateを待たずに描画へ）
 			wt.matWorld_ = MakeAffineMatrix(wt.scale_, wt.rotation_, wt.translation_);
 			wt.TransferMatrix();
 
@@ -177,51 +187,31 @@ void GameScene::Update() {
 			boss_->Update();
 		}
 
-		// ヒットエフェクトの更新
-		for (HitEffect* hitEffect : hitEffects_) {
-			hitEffect->Update();
+		for (Enemy* enemy : enemies_) {
+			enemy->Update();
 		}
 
-		// 消滅したヒットエフェクトをリストから削除
-		hitEffects_.remove_if([](HitEffect* hitEffect) {
-			if (hitEffect->IsDead()) {
-				delete hitEffect; // メモリの解放
-				return true;      // リストから除外
-			}
-			return false;
-		});
-
-		// ガードエフェクトの更新
-		for (GuardEffect* guardEffect : guardEffects_) {
-			guardEffect->Update();
-		}
-
-		// 消滅したガードエフェクトをリストから削除
-		guardEffects_.remove_if([](GuardEffect* guardEffect) {
-			if (guardEffect->IsDead()) {
-				delete guardEffect;
+		enemies_.remove_if([](Enemy* enemy) {
+			if (enemy->IsDead()) {
+				delete enemy;
 				return true;
 			}
 			return false;
 		});
 
-		// 全ての当たり判定を行う（ここで衝突したら敵の isDead_ が true になります）
 		CheckAllCollisions();
 
-		// カメラコントローラー
 		cameraController_->Update();
 		break;
 
 	case Phase::kDeath:
-		// デスパーティクルの更新
-		if (deathParticles_) {
-			deathParticles_->Update();
+		// 死亡演出中もカメラの更新を継続
+		if (cameraController_) {
+			cameraController_->Update();
 		}
 		break;
 
 	case Phase::kClear:
-		// クリア演出中も敵などは動かしたくないので、ここでは特に何もしない
-		// （演出を追加したくなったらここに実装する）
 		break;
 
 	case Phase::kFadeOut:
@@ -229,23 +219,42 @@ void GameScene::Update() {
 		break;
 	}
 
+	// ★ プレイ中・死亡中を問わず、ガードエフェクトとパーティクルを常に更新・削除する
+	for (GuardEffect* guardEffect : guardEffects_) {
+		guardEffect->Update();
+	}
+
+	guardEffects_.remove_if([](GuardEffect* guardEffect) {
+		if (guardEffect->IsDead()) {
+			delete guardEffect;
+			return true;
+		}
+		return false;
+	});
+
+	for (Particle* particle : particles_) {
+		particle->Update();
+	}
+
+	particles_.remove_if([](Particle* particle) {
+		if (particle->IsDead()) {
+			delete particle;
+			return true;
+		}
+		return false;
+	});
+
 	UpdateCommon();
 }
 
 void GameScene::UpdateCommon() {
-	// カメラシェイク
 	cameraController_->UpdateShake();
-
-	// デバッグカメラの切り替え・カメラ行列の更新
 	UpdateDebugCamera();
-
-	// ブロックのワールド行列更新
 	stage_->Update();
 }
 
 void GameScene::UpdateDebugCamera() {
 #ifdef _DEBUG
-	// デバッグカメラのオンオフ切り替え（TABキー）
 	if (Input::GetInstance()->TriggerKey(DIK_TAB)) {
 		isDebugCameraActive_ = !isDebugCameraActive_;
 	}
@@ -255,29 +264,21 @@ void GameScene::UpdateDebugCamera() {
 		debugCamera_->Update();
 		camera_.matView = debugCamera_->GetCamera().matView;
 		camera_.matProjection = debugCamera_->GetCamera().matProjection;
-		// ビュープロジェクション行列の更新と転送
 		camera_.TransferMatrix();
 	} else {
-		// ビュープロジェクション行列の更新と転送
 		camera_.UpdateMatrix();
 	}
 }
 
 void GameScene::CheckAllCollisions() {
 #pragma region 自機と敵の当たり判定
-	// 対象1と2の座標
-	AABB aabb1, aabb2{};
-
-	// 自機の座標
-	aabb1 = player_->GetAABB();
+	AABB aabb1 = player_->GetAABB();
 
 	if (boss_ && !boss_->IsCollisionDisabled()) {
 		AABB aabbBoss = boss_->GetAABB();
 
-		// 体当たり（攻撃中の体当たりはダメージにしない。攻撃は剣で行う）
 		if (IsCollisionAABB(aabb1, aabbBoss)) {
 			player_->OnCollision(boss_);
-			// ガード中は敵の体に押し出される
 			if (player_->IsGuard()) {
 				player_->PushOutFrom(aabbBoss);
 			}
@@ -287,13 +288,50 @@ void GameScene::CheckAllCollisions() {
 			}
 		}
 
-		// 剣の判定（振っている間だけ。1回の攻撃で1ヒット）
 		if (player_->IsSwordActive() && !player_->HasAttackHit()) {
 			AABB swordAabb = player_->GetSwordAABB();
 			if (IsCollisionAABB(swordAabb, aabbBoss)) {
 				boss_->OnCollision(player_);
 			}
 		}
+	}
+#pragma endregion
+
+#pragma region 自機と敵（雑魚）
+	for (Enemy* enemy : enemies_) {
+		if (enemy->IsCollisionDisabled()) {
+			continue;
+		}
+		const AABB enemyAabb = enemy->GetAABB();
+
+		if (player_->IsSwordActive() && IsCollisionAABB(player_->GetSwordAABB(), enemyAabb)) {
+			enemy->OnCollision(player_);
+		}
+		if (enemy->IsCollisionDisabled()) {
+			continue;
+		}
+
+		if (IsCollisionAABB(player_->GetAABB(), enemyAabb)) {
+			player_->OnCollision(enemy);
+			if (player_->IsGuard()) {
+				player_->PushOutFrom(enemyAabb);
+			}
+			if (!player_->IsAttack()) {
+				enemy->OnCollision(player_);
+			}
+		}
+	}
+#pragma endregion
+
+#pragma region 棘・ジャンプ台
+	const AABB playerAabb = player_->GetAABB();
+
+	if (stage_->IsTouchingSpike(playerAabb)) {
+		player_->OnHazardHit();
+	}
+
+	if (stage_->IsTouchingJumpPad(playerAabb)) {
+		player_->Launch(kJumpPadPower);
 	}
 #pragma endregion
 }
@@ -308,26 +346,20 @@ void GameScene::ChangePhase() {
 		break;
 
 	case Phase::kPlay:
-		// 自キャラがデス状態
 		if (player_->isDead()) {
 			phase_ = Phase::kDeath;
-
-			const Vector3 deathParticlesPosition = player_->GetWorldPosition();
-
-			// 死んだ瞬間にデスパーティクルを生成
-			delete deathParticles_;
-			deathParticles_ = new DeathParticles;
-			deathParticles_->Initialize(deathParticleModel_, &camera_, deathParticlesPosition);
+			deathTimer_ = 0.0f; // タイマー初期化
 		} else if (isCleared_) {
-			// クリア条件を満たしたらクリア演出フェーズへ
 			phase_ = Phase::kClear;
 			clearTimer_ = 0.0f;
+			s_bossCheckpoint_ = false;
 		}
 		break;
 
 	case Phase::kDeath:
-		// デスパーティクルが有効で、なおかつ演出が終了したら
-		if (deathParticles_ && deathParticles_->IsFinished()) {
+		// 死亡演出用に一定時間（1.6秒）待ってからゲームオーバーフェードアウトへ移行
+		deathTimer_ += 1.0f / 60.0f;
+		if (deathTimer_ >= kDeathWaitTime) {
 			nextScene_ = IScene::Next::kGameOver;
 			fade_->Start(Fade::Status::FadeOut, 1.0f);
 			phase_ = Phase::kFadeOut;
@@ -335,7 +367,6 @@ void GameScene::ChangePhase() {
 		break;
 
 	case Phase::kClear:
-		// クリア演出を少し見せてからゲームクリアシーンへ
 		clearTimer_ += 1.0f / 60.0f;
 		if (clearTimer_ >= kClearWaitTime) {
 			nextScene_ = IScene::Next::kGameClear;
@@ -352,9 +383,26 @@ void GameScene::ChangePhase() {
 	}
 }
 
+// 攻撃ヒット時の演出（Particleを使用）
 void GameScene::CreateHitEffect(const Vector3& position) {
-	HitEffect* newHitEffect = HitEffect::Create(position);
-	hitEffects_.push_back(newHitEffect);
+	for (int i = 0; i < 5; ++i) {
+		Particle::Parameter param;
+		param.position = position;
+
+		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.2f;
+		float vy = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.2f;
+		param.velocity = {vx, vy, 0.0f};
+
+		param.startScale = {0.2f, 0.2f, 0.2f};
+		param.endScale = {0.0f, 0.0f, 0.0f};
+		param.startColor = {1.0f, 1.0f, 1.0f, 1.0f}; // 白
+		param.endColor = {1.0f, 0.8f, 0.2f, 0.0f};   // 黄色フェード
+		param.lifeTime = 10 + rand() % 5;
+
+		Particle* particle = new Particle();
+		particle->Initialize(param);
+		particles_.push_back(particle);
+	}
 }
 
 void GameScene::CreateGuardEffect(const Vector3& position) {
@@ -362,56 +410,198 @@ void GameScene::CreateGuardEffect(const Vector3& position) {
 	guardEffects_.push_back(newGuardEffect);
 }
 
+// 撃破時の演出（Particleを使用）
+void GameScene::CreateDeathParticles(const Vector3& position) {
+	for (int i = 0; i < 12; ++i) {
+		Particle::Parameter param;
+		param.position = position;
+
+		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.3f;
+		float vy = (static_cast<float>(rand()) / RAND_MAX - 0.2f) * 0.4f;
+		param.velocity = {vx, vy, 0.0f};
+		param.accel = {0.0f, -0.01f, 0.0f}; // 重力
+
+		param.startScale = {0.3f, 0.3f, 0.3f};
+		param.endScale = {0.0f, 0.0f, 0.0f};
+		param.startColor = {1.0f, 0.8f, 0.2f, 1.0f}; // 黄色
+		param.endColor = {1.0f, 0.2f, 0.0f, 0.0f};   // 赤フェードアウト
+		param.lifeTime = 20 + rand() % 10;
+
+		Particle* particle = new Particle();
+		particle->Initialize(param);
+		particles_.push_back(particle);
+	}
+}
+
 void GameScene::UpdateBossRoom() {
 	const bool inBossRoom = stage_->IsInBossRoom(player_->GetWorldPosition().x);
 
-	// 出入りで、カメラの動ける範囲を切り替える
 	if (inBossRoom != isInBossRoom_) {
 		isInBossRoom_ = inBossRoom;
 		cameraController_->SetMovableArea(inBossRoom ? stage_->GetBossRoomCameraArea() : stage_->GetStageCameraArea());
 	}
 
-	// 一度入ったらボス戦開始（部屋を出ても戦いは続く）
 	if (inBossRoom) {
+		if (!isBossFightStarted_) {
+			skydome_->SetTargetColor(kBossFightSkyColor);
+			s_bossCheckpoint_ = true;
+		}
 		isBossFightStarted_ = true;
 	}
 }
 
+// プレイヤーの斬撃パーティクル
+void GameScene::CreateSlashParticles(const Vector3& position, bool isRightDirection) {
+	float dir = isRightDirection ? 1.0f : -1.0f;
+	for (int i = 0; i < 8; ++i) {
+		Particle::Parameter param;
+		param.position = position;
+		param.position.x += dir * 0.3f;
+
+		float angle = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 1.2f;
+		float speed = 0.15f + (static_cast<float>(rand()) / RAND_MAX) * 0.1f;
+		param.velocity = {dir * std::cos(angle) * speed, std::sin(angle) * speed, 0.0f};
+
+		param.startScale = {0.15f, 0.15f, 0.15f};
+		param.endScale = {0.0f, 0.0f, 0.0f};
+		param.startColor = {0.4f, 0.8f, 1.0f, 1.0f}; // 鮮やかな青光
+		param.endColor = {0.0f, 0.2f, 1.0f, 0.0f};
+		param.lifeTime = 8 + rand() % 6;
+
+		Particle* particle = new Particle();
+		particle->Initialize(param);
+		particles_.push_back(particle);
+	}
+}
+
+// 通常攻撃ヒットパーティクル（白〜黄色の鋭い花火）
+void GameScene::CreateHitParticles(const Vector3& position) {
+	for (int i = 0; i < 10; ++i) {
+		Particle::Parameter param;
+		param.position = position;
+
+		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.35f;
+		float vy = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.35f;
+		param.velocity = {vx, vy, 0.0f};
+
+		param.startScale = {0.25f, 0.25f, 0.25f};
+		param.endScale = {0.0f, 0.0f, 0.0f};
+		param.startColor = {1.0f, 1.0f, 0.8f, 1.0f}; // 黄白色
+		param.endColor = {1.0f, 0.3f, 0.0f, 0.0f};   // オレンジフェード
+		param.lifeTime = 10 + rand() % 6;
+
+		Particle* particle = new Particle();
+		particle->Initialize(param);
+		particles_.push_back(particle);
+	}
+}
+
+// ボス攻撃ヒットパーティクル（少しだけスライムの体液が飛び散る）
+void GameScene::CreateBossHitParticles(const Vector3& position, Model* model, uint32_t textureHandle) {
+	for (int i = 0; i < 5; ++i) { // 数量は控えめ
+		Particle::Parameter param;
+		param.position = position;
+
+		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.15f;
+		float vy = (static_cast<float>(rand()) / RAND_MAX) * 0.2f + 0.05f; // やや上向き
+		param.velocity = {vx, vy, 0.0f};
+		param.accel = {0.0f, -0.012f, 0.0f}; // 重力で落ちる
+
+		param.startScale = {0.15f, 0.15f, 0.15f};
+		param.endScale = {0.02f, 0.02f, 0.02f};
+		param.lifeTime = 15 + rand() % 8;
+
+		param.customModel = model;
+		param.customTextureHandle = textureHandle;
+
+		Particle* particle = new Particle();
+		particle->Initialize(param);
+		particles_.push_back(particle);
+	}
+}
+
+// スライム爆発パーティクル（敵・ボスの死亡処理で共有）
+void GameScene::CreateSlimeExplosion(const Vector3& position, Model* model, uint32_t textureHandle, float baseScale, int32_t particleCount) {
+	for (int i = 0; i < particleCount; ++i) {
+		Particle::Parameter param;
+		param.position = position;
+
+		// 全方向に勢いよく飛散（重力つき）
+		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.4f;
+		float vy = (static_cast<float>(rand()) / RAND_MAX - 0.2f) * 0.45f;
+		param.velocity = {vx, vy, 0.0f};
+		param.accel = {0.0f, -0.015f, 0.0f}; // 落下重力
+
+		// ランダム回転と回転速度
+		param.rotation = {0.0f, 0.0f, (static_cast<float>(rand()) / RAND_MAX) * 6.28f};
+		param.angularVelocity = {0.0f, 0.0f, (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.3f};
+
+		// スライム特有の横潰れ・縦伸びのランダムスケール
+		float scaleRandX = baseScale * (0.6f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f);
+		float scaleRandY = baseScale * (0.6f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f);
+		param.startScale = {scaleRandX, scaleRandY, scaleRandX};
+		param.endScale = {0.0f, 0.0f, 0.0f};
+		param.lifeTime = 25 + rand() % 15;
+
+		// 引数で渡されたモデル・テクスチャ（スライムやボス）をセット
+		param.customModel = model;
+		param.customTextureHandle = textureHandle;
+
+		Particle* particle = new Particle();
+		particle->Initialize(param);
+		particles_.push_back(particle);
+	}
+}
+
+// プレイヤー死亡パーティクル
+void GameScene::CreatePlayerDeathParticles(const Vector3& position) {
+	for (int i = 0; i < 25; ++i) {
+		Particle::Parameter param;
+		param.position = position;
+
+		float vx = (static_cast<float>(rand()) / RAND_MAX - 0.5f) * 0.25f;
+		float vy = (static_cast<float>(rand()) / RAND_MAX) * 0.35f + 0.1f; // 上方へ舞い上がる
+		param.velocity = {vx, vy, 0.0f};
+		param.accel = {0.0f, -0.003f, 0.0f};
+
+		param.startScale = {0.3f, 0.3f, 0.3f};
+		param.endScale = {0.0f, 0.0f, 0.0f};
+		param.startColor = {0.3f, 0.7f, 1.0f, 1.0f}; // プレイヤーカラー（青白）
+		param.endColor = {0.8f, 0.9f, 1.0f, 0.0f};
+		param.lifeTime = 30 + rand() % 20;
+
+		Particle* particle = new Particle();
+		particle->Initialize(param);
+		particles_.push_back(particle);
+	}
+}
+
 void GameScene::Draw() {
-	// 3Dモデルの描画前処理
 	Model::PreDraw();
 
-	// 天球
 	skydome_->Draw();
-
-	// ブロックの描画
 	stage_->Draw(camera_);
-
-	// 自機の描画
 	player_->Draw();
 
-	// Boss
 	if (boss_) {
 		boss_->Draw();
 	}
 
-	for (HitEffect* hitEffect : hitEffects_) {
-		hitEffect->Draw();
+	for (Enemy* enemy : enemies_) {
+		enemy->Draw();
 	}
 
 	for (GuardEffect* guardEffect : guardEffects_) {
 		guardEffect->Draw();
 	}
 
-	// デスパーティクルの描画
-	if (deathParticles_ != nullptr) {
-		deathParticles_->Draw();
+	// パーティクルの描画
+	for (Particle* particle : particles_) {
+		particle->Draw();
 	}
 
-	// 3Dモデルの描画後処理
 	Model::PostDraw();
 
-	// フェードの描画
 	Sprite::PreDraw();
 	if (boss_ && isBossFightStarted_) {
 		boss_->DrawUI();
