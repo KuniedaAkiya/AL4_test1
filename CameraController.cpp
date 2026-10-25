@@ -123,42 +123,69 @@ void CameraController::StartBossIntro() {
 	mode_ = Mode::kBossIntro;
 	introTimer_ = 0.0f;
 	introRoared_ = false;
+	startDistance_ = distance_;
 }
 
-// ボス登場：プレイヤー → ボスへ寄る → ボスを映す（揺れ） → プレイヤーへ戻る
+// ボス登場：プレイヤー → ボスへ移動（引いたまま） → ボスにズーム（揺れ） → プレイヤーへ戻る
 void CameraController::UpdateBossIntro() {
 	introTimer_ += 1.0f / 60.0f;
 
-	const float holdStart = kIntroMoveTime;
-	const float returnStart = kIntroMoveTime + kIntroHoldTime;
-	const float endTime = returnStart + kIntroReturnTime;
+	const float moveTime = kIntroMoveTime;     // ボスへ移動する時間（1.2秒）
+	const float holdTime = kIntroHoldTime;     // ボスを映す時間（1.0秒）
+	const float returnTime = kIntroReturnTime; // プレイヤーへ戻る時間（0.9秒）
 
-	// w：0 = プレイヤーを映す、1 = ボスを映す
-	float w = 0.0f;
-	if (introTimer_ < holdStart) {
-		w = EaseInOut(introTimer_ / kIntroMoveTime);
-	} else if (introTimer_ < returnStart) {
-		w = 1.0f;
-		if (!introRoared_) {
-			introRoared_ = true;
-			RequestShake(ShakeType::kStrong);
-		}
-	} else if (introTimer_ < endTime) {
-		w = 1.0f - EaseInOut((introTimer_ - returnStart) / kIntroReturnTime);
-	} else {
-		// 演出終了：通常の追従へ（位置はプレイヤーを映した状態なので、飛ばない）
-		mode_ = Mode::kFollow;
-		leadY_ = 0.0f;
-		isLookUp_ = false;
-		return;
-	}
+	const float holdStart = moveTime;
+	const float returnStart = moveTime + holdTime;
+	const float endTime = returnStart + returnTime;
 
 	const Vector3 playerPos = target_->GetWorldTransform().translation_;
 	const Vector3 bossPos = boss_->GetWorldPosition();
 
-	camera_->translation_.x = playerPos.x + (bossPos.x - playerPos.x) * w;
-	camera_->translation_.y = playerPos.y + (bossPos.y + kBossFocusOffsetY - playerPos.y) * w;
-	distance_ = kNormalDistance + (kIntroDistance - kNormalDistance) * w;
+	if (introTimer_ < holdStart) {
+		// --- 1. プレイヤーからボスへカメラ移動 ---
+		float t = introTimer_ / moveTime;
+		float wPos = EaseInOut(t);
+
+		// カメラ位置の更新（プレイヤー -> ボス）
+		camera_->translation_.x = playerPos.x + (bossPos.x - playerPos.x) * wPos;
+		camera_->translation_.y = playerPos.y + (bossPos.y + kBossFocusOffsetY - playerPos.y) * wPos;
+
+		// ズーム更新：移動前半（0〜70%）はズームせず、ボス直前（70〜100%）でボスへズームイン
+		float zoomT = std::clamp((t - 0.7f) / 0.3f, 0.0f, 1.0f);
+		float wZoom = EaseInOut(zoomT);
+		distance_ = startDistance_ + (kIntroDistance - startDistance_) * wZoom;
+
+	} else if (introTimer_ < returnStart) {
+		// --- 2. ボス注視・咆哮 ---
+		camera_->translation_.x = bossPos.x;
+		camera_->translation_.y = bossPos.y + kBossFocusOffsetY;
+		distance_ = kIntroDistance;
+
+		if (!introRoared_) {
+			introRoared_ = true;
+			RequestShake(ShakeType::kStrong);
+		}
+
+	} else if (introTimer_ < endTime) {
+		// --- 3. ボスからプレイヤーへカメラ復帰 ---
+		float t = (introTimer_ - returnStart) / returnTime;
+		float wReturn = EaseInOut(t);
+
+		// カメラ位置の復帰（ボス -> プレイヤー）
+		camera_->translation_.x = bossPos.x + (playerPos.x - bossPos.x) * wReturn;
+		camera_->translation_.y = (bossPos.y + kBossFocusOffsetY) + (playerPos.y - (bossPos.y + kBossFocusOffsetY)) * wReturn;
+
+		// 距離の復帰（ボスズーム -> 通常距離）
+		distance_ = kIntroDistance + (kNormalDistance - kIntroDistance) * wReturn;
+
+	} else {
+		// 演出終了：通常の追従モードへ移行
+		mode_ = Mode::kFollow;
+		distance_ = kNormalDistance;
+		leadY_ = 0.0f;
+		isLookUp_ = false;
+		return;
+	}
 }
 
 // ボス撃破：ボスへ向きながら、ゆっくり近づく

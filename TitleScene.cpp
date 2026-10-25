@@ -12,9 +12,8 @@ TitleScene::~TitleScene() {
 }
 
 void TitleScene::Initialize() {
-	// タイトルに戻ったら、ボス部屋からのやり直し記録を消す
-	//GameScene::ResetCheckpoint();
-	GameScene::SetBossCheckpoint(true);
+	// タイトルに戻ったら、ボス部屋からのやり直し記録をリセットして最初からスタートさせる
+	GameScene::ResetCheckpoint();
 	// カメラの設定
 	camera_.farZ = 1000.0f;
 	camera_.translation_ = {0.0f, 0.0f, -15.0f};
@@ -22,7 +21,7 @@ void TitleScene::Initialize() {
 
 	// 3Dモデルの読み込み
 	titleFontModel_ = Model::CreateFromOBJ("titleFont", true);
-	spaceFontModel_ = Model::CreateFromOBJ("decision", true); 
+	spaceFontModel_ = Model::CreateFromOBJ("decision", true);
 	// トランスフォームの初期化
 	titleFontTransform_.Initialize();
 	titleFontTransform_.translation_ = {0.0f, 2.0f, 5.0f};

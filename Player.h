@@ -127,6 +127,12 @@ public:
 		return requested;
 	}
 
+	// HPを全回復する
+	void HealFull() {
+		hp_ = kMaxHP;
+		UpdateHpSprites();
+	}
+
 	// カメラシェイク
 	void SetCameraController(CameraController* cameraController) { cameraController_ = cameraController; }
 
@@ -299,7 +305,7 @@ private:
 	void Die();
 	// HPアイコンの色を今のHPに合わせる
 	void UpdateHpSprites();
-	// ガードキーが押されているか（左右どちらのShiftでも可）
+	// ガードキーが押されているか（Kキー）
 	static bool IsGuardKeyPressed();
 
 	void TakeDamage();
