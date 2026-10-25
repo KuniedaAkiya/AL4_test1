@@ -61,9 +61,6 @@ public:
 	// ガード時のエフェクト生成
 	void CreateGuardEffect(const Vector3& position);
 
-	// 敵撃破時などのパーティクル生成
-	void CreateDeathParticles(const Vector3& position);
-
 	// クリア条件を満たした時に外部（Bossなど）から呼び出す
 	void RequestGameClear() { isCleared_ = true; }
 
@@ -98,9 +95,6 @@ public:
 	// 【共通】スライム爆発パーティクル
 	void CreateSlimeExplosion(const Vector3& position, Model* model, uint32_t textureHandle, float baseScale, int32_t particleCount);
 
-	// プレイヤー死亡時パーティクル
-	void CreatePlayerDeathParticles(const Vector3& position);
-
 	// ボスにすぐ行ける奴（デバッグ用）
 	static void SetBossCheckpoint(bool flag = true) { s_bossCheckpoint_ = flag; }
 
@@ -111,6 +105,26 @@ private:
 
 	// ジャンプ台の打ち上げ強度
 	static inline const float kJumpPadPower = 1.2f;
+
+	// カメラを引く場所の設定
+	struct CameraZoomZone {
+		float minX;     // 反応するX範囲（左）
+		float maxX;     // 反応するX範囲（右）
+		float minY;     // 反応するY範囲（下）
+		float maxY;     // 反応するY範囲（上）
+		float distance; // 引いた時のカメラ距離（大きいほど広く映る）
+		float speed;    // 引いていく速さ
+		bool onJumpPad; // true: ジャンプ台に乗った時だけ（着地まで） / false: 範囲の中にいる間
+	};
+	static inline const float kAnyY = 10000.0f; // Yを限定しない時に使う
+	static inline const CameraZoomZone kCameraZoomZones[] = {
+	    // 1個目のジャンプ台の手前：近づいたら引き始める
+	    {72.0f, 86.0f,  -kAnyY, kAnyY, 24.0f, 0.08f, false},
+	    // 1個目のジャンプ台：乗ったら着地するまで引く
+	    {80.0f, 90.0f,  -kAnyY, kAnyY, 24.0f, 0.08f, true },
+	    // 上の足場（88〜116列）の上にいる間は、ずっと引く
+	    {86.0f, 118.0f, 7.0f,   kAnyY, 24.0f, 0.08f, false},
+	};
 
 	// ボス部屋チェックポイント
 	static inline bool s_bossCheckpoint_ = false;
@@ -130,6 +144,11 @@ private:
 	std::list<GuardEffect*> guardEffects_;
 	std::list<Particle*> particles_; // 汎用パーティクルリスト
 
+	// パーティクルを1つ生成してリストに追加する
+	void AddParticle(const Particle::Parameter& param);
+	// プレイヤーの位置に合わせて、カメラを引く要求を出す
+	void UpdateCameraZoom(bool touchedJumpPad);
+
 	// 共通更新
 	void UpdateCommon();
 	void UpdateDebugCamera();
@@ -137,6 +156,7 @@ private:
 
 	bool isInBossRoom_ = false;
 	bool isBossFightStarted_ = false;
+	bool isBossIntro_ = false;
 
 	bool finished_ = false;
 	IScene::Next nextScene_ = IScene::Next::kNone;

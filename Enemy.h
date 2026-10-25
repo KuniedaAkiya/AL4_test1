@@ -52,9 +52,6 @@ public:
 	// プレイヤーのポインタを設定（画面内に入ったか判定用）
 	void SetPlayer(Player* player) { player_ = player; }
 
-	// 練習用ダミー設定
-	void SetTrainingDummy(bool isTrainingDummy) { (void)isTrainingDummy; }
-
 	// 倒れて、消えたかどうか
 	bool IsDead() const { return isDead_; }
 
@@ -68,9 +65,6 @@ private:
 	GameScene* gameScene_ = nullptr;
 	MapChipField* mapChipField_ = nullptr;
 	Player* player_ = nullptr; // プレイヤーへのポインタ
-
-	// 初期配置座標
-	Vector3 spawnPosition_{};
 
 	// ワールドトランスフォーム
 	WorldTransform worldTransform_;
@@ -106,9 +100,8 @@ private:
 	void BehaviorDeathUpdate();
 	void BehaviorStaggerUpdate();
 
-	// デス演出用タイマー
-	float deathTimer_ = 0.0f;
-	static inline const float kDeathTime = 0.5f;
+	// ワールド行列を更新する
+	void UpdateWorldTransform();
 
 	// 倒した時のヒットストップ（フレーム数）
 	static inline const int32_t kHitStopFrames = 2;

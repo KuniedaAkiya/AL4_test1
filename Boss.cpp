@@ -7,6 +7,15 @@
 #include <cstdlib>
 #include <numbers>
 
+namespace {
+// カメラシェイクを要求する（コントローラーが無ければ何もしない）
+void Shake(CameraController* controller, CameraController::ShakeType type) {
+	if (controller) {
+		controller->RequestShake(type);
+	}
+}
+} // namespace
+
 // デストラクタ
 Boss::~Boss() {
 	delete hpBarDelaySprite_;
@@ -28,6 +37,7 @@ void Boss::Initialize(Model* model, Camera* camera, uint32_t textureHandle, cons
 	worldTransform_.Initialize();
 	worldTransform_.translation_ = position;
 	worldTransform_.scale_ = {kModelScale, kModelScale, kModelScale};
+	worldTransform_.rotation_ = {kModelRotate.x, kModelRotate.y, kModelRotate.z};
 	groundY_ = position.y;
 
 	velocity_ = {};
@@ -117,6 +127,9 @@ void Boss::Update() {
 		BehaviorDeathUpdate();
 		break;
 	}
+
+	ClampPosition();
+	UpdateWorldTransform();
 
 	if (hpBarGaugeSprite_) {
 		// HPの残り割合（0.0〜1.0）。HPバーの長さに使う
@@ -238,13 +251,9 @@ void Boss::OnCollision(Player* player) {
 	bool isAttackUp = player->IsAttackUp();
 	// プレイヤーの今の攻撃のダメージ量
 	int32_t damage = player->GetAttackDamage();
-	// ヒットを記録する（プレイヤー側で、当てた時の無敵も付く）
-	player->MarkAttackHit();
 
-	// 攻撃ヒットの反動でプレイヤーを少し後ろに下げる（カウンター時を除く）
-	if (!player->IsCounterAttack()) {
-		player->ApplyRecoil(1.1f); // 1.5f はノックバック距離（お好みで調整してください）
-	}
+	// ★ ヒットを記録する（Player側で反動・無敵付与・踏み込み停止が自動処理される）
+	player->MarkAttackHit();
 
 	if (isAttackUp) {
 		player->ClearAttackUp();
@@ -261,15 +270,13 @@ void Boss::OnCollision(Player* player) {
 		gameScene_->CreateBossHitParticles(effectPos, model_, textureHandle_);
 	}
 
-	if (cameraController_) {
-		CameraController::ShakeType shake = CameraController::ShakeType::kWeak;
-		if (damage >= 3) {
-			shake = CameraController::ShakeType::kStrong;
-		} else if (damage == 2) {
-			shake = CameraController::ShakeType::kMedium;
-		}
-		cameraController_->RequestShake(shake);
+	CameraController::ShakeType shake = CameraController::ShakeType::kWeak;
+	if (damage >= 3) {
+		shake = CameraController::ShakeType::kStrong;
+	} else if (damage == 2) {
+		shake = CameraController::ShakeType::kMedium;
 	}
+	Shake(cameraController_, shake);
 
 	TakeDamage(damage, isAttackUp);
 }
@@ -301,9 +308,6 @@ void Boss::BehaviorIdleUpdate() {
 		bool doDash = (std::rand() % 2 == 0);
 		behaviorRequest_ = doDash ? Behavior::kAttackDash : Behavior::kAttackJump;
 	}
-
-	ClampPosition();
-	UpdateWorldTransform();
 }
 
 // 突進攻撃に入るときの初期化（突進する向きを決める）
@@ -341,13 +345,8 @@ void Boss::BehaviorAttackDashUpdate() {
 		behaviorRequest_ = Behavior::kIdle;
 	}
 
-	ClampPosition();
-	UpdateWorldTransform();
-
 	// シェイク
-	if (cameraController_) {
-		cameraController_->RequestShake(CameraController::ShakeType::kContinuous);
-	}
+	Shake(cameraController_, CameraController::ShakeType::kContinuous);
 }
 
 // ジャンプ攻撃に入るときの初期化
@@ -392,17 +391,11 @@ void Boss::BehaviorAttackJumpUpdate() {
 			Audio::GetInstance()->PlayWave(soundHandleLand_, false, kSEVolume);
 
 			// シェイク
-			if (cameraController_) {
-				cameraController_->RequestShake(CameraController::ShakeType::kMedium);
-			}
+			Shake(cameraController_, CameraController::ShakeType::kMedium);
 
 			behaviorRequest_ = Behavior::kIdle;
 		}
 	}
-
-	ClampPosition();
-
-	UpdateWorldTransform();
 }
 
 // 復活演出に入るときの初期化
@@ -419,9 +412,7 @@ void Boss::BehaviorReviveUpdate() {
 	behaviorTimer_ += 1.0f / 60.0f;
 
 	// シェイク
-	if (cameraController_) {
-		cameraController_->RequestShake(CameraController::ShakeType::kContinuous);
-	}
+	Shake(cameraController_, CameraController::ShakeType::kContinuous);
 
 	worldTransform_.rotation_.z = std::sin(behaviorTimer_ * 50.0f) * 0.15f;
 	// 復活中に体が脈打つように、拡大縮小する倍率
@@ -430,17 +421,12 @@ void Boss::BehaviorReviveUpdate() {
 
 	if (behaviorTimer_ >= kReviveTime) {
 		// シェイク
-		if (cameraController_) {
-			cameraController_->RequestShake(CameraController::ShakeType::kStrong);
-		}
+		Shake(cameraController_, CameraController::ShakeType::kStrong);
 		worldTransform_.rotation_.z = 0.0f;
 		worldTransform_.scale_ = {kModelScale, kModelScale, kModelScale};
 		isCollisionDisabled_ = false;
 		behaviorRequest_ = Behavior::kIdle;
 	}
-
-	ClampPosition();
-	UpdateWorldTransform();
 }
 
 // 撃破演出に入るときの初期化
@@ -463,24 +449,17 @@ void Boss::BehaviorDeathUpdate() {
 	float t = std::clamp(deathTimer_ / kDeathTime, 0.0f, 1.0f);
 
 	// シェイク
-	if (cameraController_) {
-		cameraController_->RequestShake(CameraController::ShakeType::kContinuous);
-	}
+	Shake(cameraController_, CameraController::ShakeType::kContinuous);
 
 	worldTransform_.rotation_.y += 0.3f;
 	worldTransform_.rotation_.x = t * std::numbers::pi_v<float>;
 	worldTransform_.scale_ = {(1.0f - t) * kModelScale, (1.0f - t) * kModelScale, (1.0f - t) * kModelScale};
 
-	ClampPosition();
-	UpdateWorldTransform();
-
 	if (deathTimer_ >= kDeathTime) {
 		isDead_ = true;
 
 		// シェイク
-		if (cameraController_) {
-			cameraController_->RequestShake(CameraController::ShakeType::kStrong);
-		}
+		Shake(cameraController_, CameraController::ShakeType::kStrong);
 
 		if (gameScene_) {
 			gameScene_->RequestGameClear();

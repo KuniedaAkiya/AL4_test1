@@ -1,8 +1,17 @@
 #include "CameraController.h"
+#include "Boss.h"
 #include "MatrixFunction.h"
 #include "Player.h"
 #include <algorithm>
 #include <cstdlib>
+
+namespace {
+// 0→1 をなめらかに（始まりと終わりがゆっくり）
+float EaseInOut(float t) {
+	t = std::clamp(t, 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+} // namespace
 
 void CameraController::Initialize(Camera* camera) {
 	// カメラの初期化
@@ -10,42 +19,194 @@ void CameraController::Initialize(Camera* camera) {
 	camera_->Initialize();
 };
 
+// 寄った/引いた分だけ画面の広さが変わるので、カメラ中心が動ける範囲を補正する。
+// 下端は「ブロックの下端が画面の下端」のまま変わらないように計算される。
+CameraController::Rect CameraController::GetAdjustedArea() const {
+	const float extraW = (distance_ - kNormalDistance) * kHalfWidthPerDistance;
+	const float extraH = (distance_ - kNormalDistance) * kHalfHeightPerDistance;
+
+	Rect area = movableArea_;
+	area.left += extraW;
+	area.right -= extraW;
+	area.bottom += extraH;
+	area.top -= extraH;
+
+	// 範囲が逆転したら（部屋が画面より狭い）、中央に固定する
+	if (area.left > area.right) {
+		area.left = area.right = (area.left + area.right) * 0.5f;
+	}
+	if (area.bottom > area.top) {
+		area.bottom = area.top = (area.bottom + area.top) * 0.5f;
+	}
+	return area;
+}
+
 void CameraController::Update() {
 	// 補完の前に前フレームの揺れを外す
 	RemoveShake();
 
-	// 追従対象のワールドトランスフォームを参照
-	const WorldTransform& targetWorldTransform = target_->GetWorldTransform();
-	// 追従対象とオフセットからカメラの座標を計算
-	targetPos_.x = targetWorldTransform.translation_.x + targetOffset_.x + target_->GetVelocity().x * kVelocityBias;
-	targetPos_.y = targetWorldTransform.translation_.y + targetOffset_.y + target_->GetVelocity().y * kVelocityBias;
-	targetPos_.z = targetWorldTransform.translation_.z + targetOffset_.z + target_->GetVelocity().z;
+	// ボスの撃破演出が始まったら、撃破カメラへ
+	if (mode_ == Mode::kFollow && boss_ && boss_->IsDying()) {
+		mode_ = Mode::kBossDefeat;
+	}
 
-	// 座標補完を使ってゆったり追従
-	camera_->translation_ = Lerp(camera_->translation_, targetPos_, kInterpolationSpeed);
+	switch (mode_) {
+	case Mode::kFollow:
+		UpdateFollow();
+		break;
+	case Mode::kBossIntro:
+		UpdateBossIntro();
+		break;
+	case Mode::kBossDefeat:
+		UpdateBossDefeat();
+		break;
+	}
 
-	// 追従対象が画面外に行かないようにする処理
-	camera_->translation_.x = std::clamp(camera_->translation_.x, targetWorldTransform.translation_.x + margin.left, targetWorldTransform.translation_.x + margin.right);
-	camera_->translation_.y = std::clamp(camera_->translation_.y, targetWorldTransform.translation_.y + margin.bottom, targetWorldTransform.translation_.y + margin.top);
+	// このフレームのズーム要求は使い終わったので捨てる
+	zoomRequest_ = ZoomRequest{};
 
-	camera_->translation_.x = std::clamp(camera_->translation_.x, movableArea_.left, movableArea_.right);
-	camera_->translation_.y = std::clamp(camera_->translation_.y, movableArea_.bottom, movableArea_.top);
+	camera_->translation_.z = target_->GetWorldTransform().translation_.z - distance_;
+
+	// ステージの範囲から出ない（どの演出でも共通）
+	const Rect area = GetAdjustedArea();
+	camera_->translation_.x = std::clamp(camera_->translation_.x, area.left, area.right);
+	camera_->translation_.y = std::clamp(camera_->translation_.y, area.bottom, area.top);
 
 	// 行列を更新
 	camera_->UpdateMatrix();
 };
 
+void CameraController::UpdateFollow() {
+	const Vector3 playerPos = target_->GetWorldTransform().translation_;
+	const bool onGround = target_->IsOnGround();
+
+	// 着地するまでのズーム：一度空中に出てから着地したら解除
+	if (hasLandingZoom_) {
+		if (!onGround) {
+			landingZoomAirborne_ = true;
+		} else if (landingZoomAirborne_) {
+			hasLandingZoom_ = false;
+			landingZoomAirborne_ = false;
+		}
+	}
+
+	// 今フレームの要求と、着地まで有効な要求のうち、より引くほうを採用
+	ZoomRequest zoom = zoomRequest_;
+	if (hasLandingZoom_ && landingZoom_.distance > zoom.distance) {
+		zoom = landingZoom_;
+	}
+	distance_ += (zoom.distance - distance_) * zoom.speed;
+
+	// マップの外が映らないように、引ける距離に上限を付ける
+	const float maxDistanceH = kNormalDistance + (movableArea_.top - movableArea_.bottom) / (2.0f * kHalfHeightPerDistance);
+	const float maxDistanceW = kNormalDistance + (movableArea_.right - movableArea_.left) / (2.0f * kHalfWidthPerDistance);
+	distance_ = (std::min)(distance_, (std::min)(maxDistanceH, maxDistanceW) - kZoomEdgeMargin);
+
+	// 地上にいる時だけ基準となるY座標を更新（空中・ジャンプ台移動中は groundedY_ に固定）
+	if (onGround) {
+		groundedY_ = playerPos.y;
+	}
+
+	// X軸はプレイヤーを追従、Y軸は地上の高さ(groundedY_)に固定
+	camera_->translation_.x += (playerPos.x - camera_->translation_.x) * kFollowSpeedX;
+	camera_->translation_.y += (groundedY_ - camera_->translation_.y) * kFollowSpeedY;
+
+	// プレイヤーが画面外に出ないようにする
+	camera_->translation_.x = std::clamp(camera_->translation_.x, playerPos.x - kSafeMarginX, playerPos.x + kSafeMarginX);
+	camera_->translation_.y = std::clamp(camera_->translation_.y, playerPos.y - kSafeMarginY, playerPos.y + kSafeMarginY);
+}
+
+void CameraController::StartBossIntro() {
+	if (!boss_) {
+		return;
+	}
+	mode_ = Mode::kBossIntro;
+	introTimer_ = 0.0f;
+	introRoared_ = false;
+}
+
+// ボス登場：プレイヤー → ボスへ寄る → ボスを映す（揺れ） → プレイヤーへ戻る
+void CameraController::UpdateBossIntro() {
+	introTimer_ += 1.0f / 60.0f;
+
+	const float holdStart = kIntroMoveTime;
+	const float returnStart = kIntroMoveTime + kIntroHoldTime;
+	const float endTime = returnStart + kIntroReturnTime;
+
+	// w：0 = プレイヤーを映す、1 = ボスを映す
+	float w = 0.0f;
+	if (introTimer_ < holdStart) {
+		w = EaseInOut(introTimer_ / kIntroMoveTime);
+	} else if (introTimer_ < returnStart) {
+		w = 1.0f;
+		if (!introRoared_) {
+			introRoared_ = true;
+			RequestShake(ShakeType::kStrong);
+		}
+	} else if (introTimer_ < endTime) {
+		w = 1.0f - EaseInOut((introTimer_ - returnStart) / kIntroReturnTime);
+	} else {
+		// 演出終了：通常の追従へ（位置はプレイヤーを映した状態なので、飛ばない）
+		mode_ = Mode::kFollow;
+		leadY_ = 0.0f;
+		isLookUp_ = false;
+		return;
+	}
+
+	const Vector3 playerPos = target_->GetWorldTransform().translation_;
+	const Vector3 bossPos = boss_->GetWorldPosition();
+
+	camera_->translation_.x = playerPos.x + (bossPos.x - playerPos.x) * w;
+	camera_->translation_.y = playerPos.y + (bossPos.y + kBossFocusOffsetY - playerPos.y) * w;
+	distance_ = kNormalDistance + (kIntroDistance - kNormalDistance) * w;
+}
+
+// ボス撃破：ボスへ向きながら、ゆっくり近づく
+void CameraController::UpdateBossDefeat() {
+	const Vector3 bossPos = boss_->GetWorldPosition();
+
+	distance_ += (kDefeatDistance - distance_) * kDefeatZoomSpeed;
+	camera_->translation_.x += (bossPos.x - camera_->translation_.x) * kDefeatFollowSpeed;
+	camera_->translation_.y += (bossPos.y + kBossFocusOffsetY - camera_->translation_.y) * kDefeatFollowSpeed;
+}
+
 void CameraController::Reset() {
-	// 追従対象のワールドトランスフォーム
-	const WorldTransform& targetWorldTransform = target_->GetWorldTransform();
-	// 追従対象とオフセットからカメラの座標を計算
-	camera_->translation_.x = targetWorldTransform.translation_.x + targetOffset_.x;
-	camera_->translation_.y = targetWorldTransform.translation_.y + targetOffset_.y;
-	camera_->translation_.z = targetWorldTransform.translation_.z + targetOffset_.z;
+	const Vector3 playerPos = target_->GetWorldTransform().translation_;
+
+	// 補間用の状態を初期化
+	mode_ = Mode::kFollow;
+	distance_ = kNormalDistance;
+	leadY_ = 0.0f;
+	isLookUp_ = false;
+	groundedY_ = playerPos.y;
+
+	zoomRequest_ = ZoomRequest{};
+	hasLandingZoom_ = false;
+	landingZoomAirborne_ = false;
+
+	// 位置を直接設定（移動範囲の外には出さない）
+	const Rect area = GetAdjustedArea();
+	camera_->translation_.x = std::clamp(playerPos.x, area.left, area.right);
+	camera_->translation_.y = std::clamp(playerPos.y, area.bottom, area.top);
+	camera_->translation_.z = playerPos.z - distance_;
+
 	// 位置を直接設定したので、揺れの記録も捨てる
 	appliedShake_ = {0.0f, 0.0f, 0.0f};
 	shakeFrames_ = 0;
 	continuousRequested_ = false;
+}
+
+void CameraController::RequestZoom(float distance, float speed) {
+	if (distance > zoomRequest_.distance) {
+		zoomRequest_ = {distance, speed};
+	}
+}
+
+void CameraController::RequestZoomUntilLanding(float distance, float speed) {
+	if (!hasLandingZoom_ || distance > landingZoom_.distance) {
+		landingZoom_ = {distance, speed};
+	}
+	hasLandingZoom_ = true;
 }
 
 void CameraController::RemoveShake() {
