@@ -1,179 +1,150 @@
 #pragma once
-#include <algorithm>
-#include <cstdint>
-#include <list>
-#include <vector>
-
-#include "Boss.h"
-#include "CameraController.h"
-#include "Enemy.h"
-#include "Fade.h"
-#include "GuardEffect.h"
-#include "IScene.h"
-#include "MapChipField.h"
-#include "Particle.h"
-#include "PauseMenu.h"
-#include "Player.h"
-#include "Skydome.h"
-#include "Stage.h"
-
+#include "KamataEngine.h"
+class Player;
+class Boss;
 using namespace KamataEngine;
 
-// ゲームシーン
-class GameScene : public IScene {
+class CameraController {
 public:
-	// フェーズ
-	enum class Phase {
-		kFadeIn, // フェードイン
-		kPlay,   // ゲームプレイ
-		kDeath,  // デス演出
-		kClear,  // クリア演出
-		kFadeOut // フェードアウト
+	// 矩形
+	struct Rect {
+		float left = 0.0f;
+		float right = 1.0f;
+		float bottom = 0.0f;
+		float top = 1.0f;
 	};
 
-	// デストラクタ
-	~GameScene() override;
+	// カメラシェイクの種類
+	enum class ShakeType {
+		kWeak,       // 弱：通常ヒットなど
+		kMedium,     // 中：ジャストガード、被ダメージなど
+		kStrong,     // 強：カウンター、撃破など
+		kContinuous, // 継続：呼んでいる間だけ揺れる（毎フレーム呼ぶ）
+	};
+
+	// カメラの動き方
+	enum class Mode {
+		kFollow,     // 通常：プレイヤーをそのままスクロール追従（ボス戦中もこれ）
+		kBossIntro,  // ボス登場演出：ボスへ寄って、戻る
+		kBossDefeat, // ボス撃破演出：ボスに近づく
+	};
 
 	// 初期化
-	void Initialize() override;
+	void Initialize(Camera* camera);
 
 	// 更新
-	void Update() override;
+	void Update();
 
-	// 描画
-	void Draw() override;
-
-	// 全ての当たり判定を行う
-	void CheckAllCollisions();
-
-	// フェーズの切り替え判定
-	void ChangePhase();
-
-	// 終了フラグのgetter
-	bool IsFinished() const override { return finished_; }
-
-	// 次に遷移するシーンの取得
-	IScene::Next GetNextScene() const override { return nextScene_; }
-
-	// 攻撃ヒット時のパーティクル生成
-	void CreateHitEffect(const Vector3& position);
-
-	// ガード時のエフェクト生成
-	void CreateGuardEffect(const Vector3& position);
-
-	// クリア条件を満たした時に外部（Bossなど）から呼び出す
-	void RequestGameClear() { isCleared_ = true; }
-
-	// カメラシェイクの種類
-	using ShakeType = CameraController::ShakeType;
+	// 位置を直接合わせる（テレポート・開始時用。補間なし）
+	void Reset();
 
 	// カメラシェイクを要求する
-	void RequestCameraShake(ShakeType type) {
-		if (cameraController_) {
-			cameraController_->RequestShake(type);
-		}
-	}
+	void RequestShake(ShakeType type);
 
-	// ヒットストップを要求する
-	void RequestHitStop(int32_t frames) { hitStopFrames_ = (std::max)(hitStopFrames_, frames); }
+	// カメラシェイクの更新（追従の状態に関わらず毎フレーム呼ぶ）
+	void UpdateShake();
 
-	// チェックポイントリセット
-	static void ResetCheckpoint() { s_bossCheckpoint_ = false; }
+	void SetTarget(Player* target) { target_ = target; }
+	void SetBossTarget(const Boss* boss) { boss_ = boss; }
 
-	// スロー演出を要求する
-	void RequestSlow(int32_t frames) { slowFrames_ = (std::max)(slowFrames_, frames); }
+	// カメラを引く要求。同じフレームに複数あれば、一番引くものを採用する
+	// このフレームだけ有効（範囲の中にいる間、毎フレーム呼ぶ）
+	void RequestZoom(float distance, float speed = kZoomSpeed);
+	// 着地するまで有効（ジャンプ台などで呼ぶ。一度空中に出てから着地すると解除）
+	void RequestZoomUntilLanding(float distance, float speed = kZoomSpeed);
 
-	// プレイヤーの斬撃パーティクル
-	void CreateSlashParticles(const Vector3& position, bool isRightDirection);
+	// ボス登場演出を始める
+	void StartBossIntro();
+	// ボス登場演出が終わったか（演出中でなければ true）
+	bool IsBossIntroFinished() const { return mode_ != Mode::kBossIntro; }
 
-	// 通常攻撃ヒットパーティクル
-	void CreateHitParticles(const Vector3& position);
-
-	// ボス被弾時のパーティクル（少しだけ飛び散る）
-	void CreateBossHitParticles(const Vector3& position, Model* model, uint32_t textureHandle);
-
-	// 【共通】スライム爆発パーティクル
-	void CreateSlimeExplosion(const Vector3& position, Model* model, uint32_t textureHandle, float baseScale, int32_t particleCount);
-
-	// ボスにすぐ行ける奴（デバッグ用）
-	static void SetBossCheckpoint(bool flag = true) { s_bossCheckpoint_ = flag; }
+	// 移動範囲（「通常の距離」でのカメラ中心の範囲。寄った/引いた分は内部で自動補正する）
+	void SetMovableArea(Rect Area) { movableArea_ = Area; };
 
 private:
-	// 敵のリスト
-	std::list<Enemy*> enemies_;
-	static inline const float kEnemySpawnYOffset = 0.1f;
-
-	// ジャンプ台の打ち上げ強度
-	static inline const float kJumpPadPower = 1.2f;
-
-	// ボス部屋チェックポイント
-	static inline bool s_bossCheckpoint_ = false;
-
-	// 背景天球色
-	static inline const Vector4 kBossFightSkyColor = {0.9f, 0.35f, 0.35f, 1.0f};
-
-	// 演出タイマー
-	int32_t hitStopFrames_ = 0;
-	int32_t slowFrames_ = 0;
-
-	// 死亡演出待ち時間タイマー（DeathParticlesの代わり）
-	float deathTimer_ = 0.0f;
-	static inline const float kDeathWaitTime = 1.6f;
-
-	// エフェクト・パーティクルリスト
-	std::list<GuardEffect*> guardEffects_;
-	std::list<Particle*> particles_; // 汎用パーティクルリスト
-
-	// パーティクルを1つ生成してリストに追加する
-	void AddParticle(const Particle::Parameter& param);
-
-	// 共通更新
-	void UpdateCommon();
-	void UpdateDebugCamera();
-	void UpdateBossRoom();
-
-	bool isInBossRoom_ = false;
-	bool isBossFightStarted_ = false;
-
-	bool finished_ = false;
-	IScene::Next nextScene_ = IScene::Next::kNone;
-	Phase phase_;
-	Fade* fade_ = nullptr;
-
-	bool isCleared_ = false;
-	float clearTimer_ = 0.0f;
-	static inline const float kClearWaitTime = 1.0f;
-
-	// ポーズ機能
-	bool isPaused_ = false;
-	PauseMenu pauseMenu_;
-	Sprite* pauseGuideSprite_ = nullptr;
-	uint32_t pauseGuideTextureHandle_ = 0;
-	static inline const Vector2 kPauseGuidePosition = {1080.0f, 644.0f};
-	static inline const Vector2 kPauseGuideSize = {160.0f, 36.0f};
+	void UpdateFollow();
+	void UpdateBossIntro();
+	void UpdateBossDefeat();
+	// 今の距離に合わせて、移動範囲を補正して返す
+	Rect GetAdjustedArea() const;
 
 	// カメラ
-	Camera camera_{};
-	CameraController* cameraController_ = nullptr;
-	bool isDebugCameraActive_ = false;
-	DebugCamera* debugCamera_ = nullptr;
+	Camera* camera_ = nullptr;
 
-	// インスタンス
-	Player* player_ = nullptr;
-	Boss* boss_ = nullptr;
-	Skydome* skydome_ = nullptr;
-	Stage* stage_ = nullptr;
+	// 追従ターゲット
+	Player* target_ = nullptr;
+	const Boss* boss_ = nullptr;
 
-	// ハンドル
-	uint32_t playerDataHandle_ = 0;
-	uint32_t bossDataHandle_ = 0;
-	uint32_t bgmBossHandle_ = 0;
-	uint32_t bgmPlayHandle_ = 0;
+	Mode mode_ = Mode::kFollow;
 
-	// モデル
-	Model* modelSkydome_ = nullptr;
-	Model* playerModel_ = nullptr;
-	Model* particleModel_ = nullptr;
-	Model* modelAttack_ = nullptr;
-	Model* bossModel_ = nullptr;
+	// カメラ移動範囲
+	Rect movableArea_ = {-10000.0f, 10000.0f, -10000.0f, 10000.0f};
+
+	// ==== 距離（ズーム） ====
+	static inline const float kNormalDistance = 15.0f;
+	static inline const float kZoomSpeed = 0.1f; // 通常距離に戻る速さ
+	// 距離1あたりの、画面の半分の大きさ（視野角45度・16:9）。カメラ設定を変えたらここも直す
+	static inline const float kHalfHeightPerDistance = 0.41421356f; // tan(22.5度)
+	static inline const float kHalfWidthPerDistance = 0.41421356f * 16.0f / 9.0f;
+
+	// ==== 通常の追従 ====
+	static inline const float kFollowSpeedX = 0.2f;  // 横の追従の速さ
+	static inline const float kFollowSpeedY = 0.15f; // 縦の追従の速さ
+	static inline const float kSafeMarginX = 8.0f;   // プレイヤーが画面外に出ないための最大ずれ
+	static inline const float kSafeMarginY = 5.0f;
+	static inline const float kZoomEdgeMargin = 1.0f; // 引ける距離の上限から、さらに手前に余裕を持たせる量
+	// ジャンプ台：打ち上がった時だけ、プレイヤーより上を多く映す
+
+	// ==== ボス登場演出 ====
+	static inline const float kIntroMoveTime = 1.2f;   // ボスへ寄っていく時間（秒）
+	static inline const float kIntroHoldTime = 1.0f;   // ボスを映している時間（秒）
+	static inline const float kIntroReturnTime = 0.9f; // プレイヤーへ戻る時間（秒）
+	static inline const float kIntroDistance = 8.0f;   // ボスを映す時の距離（小さいほど寄る）
+	static inline const float kBossFocusOffsetY = 0.5f;
+
+	// ==== ボス撃破演出 ====
+	static inline const float kDefeatDistance = 9.0f;     // 撃破時の距離
+	static inline const float kDefeatZoomSpeed = 0.04f;   // 寄る速さ
+	static inline const float kDefeatFollowSpeed = 0.08f; // ボスへ向く速さ
+
+	float distance_ = kNormalDistance; // 今のカメラ距離
+	float leadY_ = 0.0f;               // 縦の先読み量（ジャンプ台の時だけ上）
+	bool isLookUp_ = false;            // 打ち上がり中か
+	float groundedY_ = 0.0f;           // カメラの縦の基準にする高さ
+	float introTimer_ = 0.0f;
+	bool introRoared_ = false; // 登場演出の揺れを出したか
+
+	// ズーム要求（距離が大きいほど引く）
+	struct ZoomRequest {
+		float distance = kNormalDistance;
+		float speed = kZoomSpeed;
+	};
+	ZoomRequest zoomRequest_;          // 今フレームの要求
+	ZoomRequest landingZoom_;          // 着地まで有効な要求
+	bool hasLandingZoom_ = false;      // 着地までのズームが有効か
+	bool landingZoomAirborne_ = false; // その間に一度空中に出たか
+
+	// シェイク
+	//   前フレームに足した揺れを取り除く
+	void RemoveShake();
+
+	// ==== カメラシェイク ====
+	struct ShakeParam {
+		float power;
+		int32_t frames;
+	};
+	// 弱・中・強（ShakeType の順）
+	static inline const ShakeParam kShakeParams[3] = {
+	    {0.10f, 6 },
+        {0.25f, 12},
+        {0.50f, 20}
+    };
+	// 継続の強さ
+	static inline const float kContinuousShakePower = 0.10f;
+
+	float shakePower_ = 0.0f;
+	int32_t shakeFrames_ = 0;
+	int32_t shakeTotalFrames_ = 0;
+	bool continuousRequested_ = false; // 今フレームに継続が要求されたか
+	Vector3 appliedShake_{};           // 今カメラに足している揺れ量
 };

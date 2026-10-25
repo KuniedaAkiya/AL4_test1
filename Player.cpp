@@ -236,46 +236,49 @@ void Player::UpdateWorldMatrix() {
 
 // 移動入力処理
 void Player::InputMove() {
+	Input* input = Input::GetInstance();
+	float dir = 0.0f;
+	if (input->PushKey(DIK_D)) {
+		dir = +1.0f;
+	} else if (input->PushKey(DIK_A)) {
+		dir = -1.0f;
+	}
+
 	if (onGround_) {
-		if (Input::GetInstance()->PushKey(DIK_D) || Input::GetInstance()->PushKey(DIK_A)) {
-			Vector3 acceleration_{};
-			if (Input::GetInstance()->PushKey(DIK_D)) {
-				if (velocity_.x < 0.0f) {
-					velocity_.x *= (1.0f - kAttenuation);
-				}
-				acceleration_.x = +kAcceleration;
-				if (lrDirection_ != LRDirection::kRight) {
-					lrDirection_ = LRDirection::kRight;
-					turnFirstRotationY_ = worldTransform_.rotation_.y;
-					turnTimer_ = kTimeTurn;
-				}
-			} else if (Input::GetInstance()->PushKey(DIK_A)) {
-				if (velocity_.x > 0.0f) {
-					velocity_.x *= (1.0f - kAttenuation);
-				}
-				acceleration_.x = -kAcceleration;
-				if (lrDirection_ != LRDirection::kLeft) {
-					lrDirection_ = LRDirection::kLeft;
-					turnFirstRotationY_ = worldTransform_.rotation_.y;
-					turnTimer_ = kTimeTurn;
-				}
+		if (dir != 0.0f) {
+			if (velocity_.x * dir < 0.0f) {
+				velocity_.x *= (1.0f - kAttenuation);
 			}
-			velocity_.x += acceleration_.x;
+			velocity_.x += dir * kAcceleration;
+
+			const LRDirection newDirection = (dir > 0.0f) ? LRDirection::kRight : LRDirection::kLeft;
+			if (lrDirection_ != newDirection) {
+				lrDirection_ = newDirection;
+				turnFirstRotationY_ = worldTransform_.rotation_.y;
+				turnTimer_ = kTimeTurn;
+			}
 			velocity_.x = std::clamp(velocity_.x, -kLimitRunSpeed, kLimitRunSpeed);
 		} else {
 			velocity_.x *= (1.0f - kAttenuation);
+			if (std::fabs(velocity_.x) < kStopThreshold) {
+				velocity_.x = 0.0f;
+			}
 		}
-		// ジャンプ時に音量を指定してSE再生
-		if (Input::GetInstance()->PushKey(DIK_W)) {
+		if (input->PushKey(DIK_W)) {
 			velocity_ += Vector3(0, kJumpAcceleration, 0);
 			Audio::GetInstance()->PlayWave(soundHandleJump_, false, kSEVolume);
 		}
 	} else {
-		// 空中：少しだけ左右に動かせる
-		if (Input::GetInstance()->PushKey(DIK_D)) {
-			velocity_.x += kAirAcceleration;
-		} else if (Input::GetInstance()->PushKey(DIK_A)) {
-			velocity_.x -= kAirAcceleration;
+		if (dir != 0.0f) {
+			if (velocity_.x * dir < 0.0f) {
+				velocity_.x *= (1.0f - kAirTurnBrake);
+			}
+			velocity_.x += dir * kAirAcceleration;
+		} else {
+			velocity_.x *= (1.0f - kAirDrag);
+			if (std::fabs(velocity_.x) < kStopThreshold) {
+				velocity_.x = 0.0f;
+			}
 		}
 		velocity_.x = std::clamp(velocity_.x, -kLimitRunSpeed, kLimitRunSpeed);
 
@@ -450,7 +453,7 @@ void Player::UpdateHpSprites() {
 	}
 }
 
-// 死亡処理（HP0・死亡フラグ・爆発パーティクル）
+// 死亡処理
 void Player::Die() {
 	hp_ = 0;
 	isDead_ = true;
@@ -557,7 +560,7 @@ void Player::BehaviorAttackInitialize() {
 	}
 }
 
-// 攻撃行動状態の更新（斬撃パーティクル追加）
+// 攻撃行動状態の更新
 void Player::BehaviorAttackUpdate() {
 	Vector3 attackVelocity{};
 	attackParameter_ += 1.0f / 60.0f;
@@ -598,7 +601,6 @@ void Player::BehaviorAttackUpdate() {
 			attackPhase_ = AttackPhase::kSwing;
 			attackParameter_ = 0.0f;
 
-			// ★剣を振り下ろした瞬間に斬撃パーティクルを生成
 			if (gameScene_) {
 				gameScene_->CreateSlashParticles(GetWorldPosition(), lrDirection_ == LRDirection::kRight);
 			}
@@ -614,7 +616,10 @@ void Player::BehaviorAttackUpdate() {
 			swordReach = EaseOut(-kCounterPullBack, kCounterReach, t);
 		}
 
-		attackVelocity.x = (lrDirection_ == LRDirection::kRight) ? lungeSpeed : -lungeSpeed;
+		// まだ当たっていない場合のみ踏み込み移動を行う（めり込み防止）
+		if (!attackHit_) {
+			attackVelocity.x = (lrDirection_ == LRDirection::kRight) ? lungeSpeed : -lungeSpeed;
+		}
 
 		if (attackParameter_ >= swingTime) {
 			attackPhase_ = AttackPhase::kAfterglow;
@@ -730,6 +735,12 @@ void Player::RequestCounterAttack() {
 void Player::MarkAttackHit() {
 	attackHit_ = true;
 	GrantInvincible(kHitInvincibleTime);
+
+	// カウンター攻撃以外の場合、コンボ段数に応じた反動（ヒットバック）を適用する
+	if (!IsCounterAttack()) {
+		float recoilDistance = kComboRecoilDistances[comboStep_];
+		ApplyRecoil(recoilDistance);
+	}
 }
 
 // 無敵を付ける
@@ -838,7 +849,7 @@ void Player::OnJustGuardSuccess() {
 	}
 }
 
-// ダメージを受ける（共通爆発パーティクルを使用）
+// ダメージを受ける
 void Player::TakeDamage() {
 	hp_--;
 	counterTimer_ = 0.0f;

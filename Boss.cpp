@@ -37,6 +37,7 @@ void Boss::Initialize(Model* model, Camera* camera, uint32_t textureHandle, cons
 	worldTransform_.Initialize();
 	worldTransform_.translation_ = position;
 	worldTransform_.scale_ = {kModelScale, kModelScale, kModelScale};
+	worldTransform_.rotation_ = {kModelRotate.x, kModelRotate.y, kModelRotate.z};
 	groundY_ = position.y;
 
 	velocity_ = {};
@@ -250,13 +251,9 @@ void Boss::OnCollision(Player* player) {
 	bool isAttackUp = player->IsAttackUp();
 	// プレイヤーの今の攻撃のダメージ量
 	int32_t damage = player->GetAttackDamage();
-	// ヒットを記録する（プレイヤー側で、当てた時の無敵も付く）
-	player->MarkAttackHit();
 
-	// 攻撃ヒットの反動でプレイヤーを少し後ろに下げる（カウンター時を除く）
-	if (!player->IsCounterAttack()) {
-		player->ApplyRecoil(1.1f); // 1.5f はノックバック距離（お好みで調整してください）
-	}
+	// ★ ヒットを記録する（Player側で反動・無敵付与・踏み込み停止が自動処理される）
+	player->MarkAttackHit();
 
 	if (isAttackUp) {
 		player->ClearAttackUp();

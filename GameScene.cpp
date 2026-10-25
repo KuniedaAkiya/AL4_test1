@@ -127,7 +127,14 @@ void GameScene::Initialize() {
 	}
 	cameraController_->SetMovableArea(s_bossCheckpoint_ ? stage_->GetBossRoomCameraArea() : stage_->GetStageCameraArea());
 	cameraController_->SetTarget(player_);
+	cameraController_->SetBossTarget(boss_);
 	cameraController_->Reset();
+
+	// ★テスト用：チェックポイント開始でも登場演出を見る（確認が終わったら消す）
+	if (s_bossCheckpoint_) {
+		isBossFightStarted_ = false;
+		isBossIntro_ = false;
+	}
 
 	player_->SetCameraController(cameraController_);
 	boss_->SetCameraController(cameraController_);
@@ -186,7 +193,10 @@ void GameScene::Update() {
 		break;
 
 	case Phase::kPlay:
-		player_->Update();
+		// 演出中はプレイヤーを止める
+		if (!isBossIntro_) {
+			player_->Update();
+		}
 
 		if (player_->ConsumeTeleportRequest()) {
 			WorldTransform& wt = player_->GetWorldTransform();
@@ -197,7 +207,7 @@ void GameScene::Update() {
 
 			wt.matWorld_ = MakeAffineMatrix(wt.scale_, wt.rotation_, wt.translation_);
 			wt.TransferMatrix();
-
+			cameraController_->SetMovableArea(stage_->GetBossRoomCameraArea());
 			cameraController_->Reset();
 		}
 
@@ -222,6 +232,7 @@ void GameScene::Update() {
 		break;
 
 	case Phase::kClear:
+		cameraController_->Update();
 		break;
 
 	case Phase::kFadeOut:
@@ -319,10 +330,31 @@ void GameScene::CheckAllCollisions() {
 		player_->OnHazardHit();
 	}
 
-	if (stage_->IsTouchingJumpPad(playerAabb)) {
+	const bool touchedJumpPad = stage_->IsTouchingJumpPad(playerAabb);
+	if (touchedJumpPad) {
 		player_->Launch(kJumpPadPower);
 	}
+	UpdateCameraZoom(touchedJumpPad);
 #pragma endregion
+}
+
+// プレイヤーの位置に合わせて、カメラを引く要求を出す
+void GameScene::UpdateCameraZoom(bool touchedJumpPad) {
+	const Vector3 playerPos = player_->GetWorldPosition();
+
+	for (const CameraZoomZone& zone : kCameraZoomZones) {
+		if (playerPos.x < zone.minX || playerPos.x > zone.maxX || playerPos.y < zone.minY || playerPos.y > zone.maxY) {
+			continue;
+		}
+
+		if (zone.onJumpPad) {
+			if (touchedJumpPad) {
+				cameraController_->RequestZoomUntilLanding(zone.distance, zone.speed);
+			}
+		} else {
+			cameraController_->RequestZoom(zone.distance, zone.speed);
+		}
+	}
 }
 
 void GameScene::ChangePhase() {
@@ -409,11 +441,17 @@ void GameScene::UpdateBossRoom() {
 		cameraController_->SetMovableArea(inBossRoom ? stage_->GetBossRoomCameraArea() : stage_->GetStageCameraArea());
 	}
 
-	if (inBossRoom) {
-		if (!isBossFightStarted_) {
-			skydome_->SetTargetColor(kBossFightSkyColor);
-			s_bossCheckpoint_ = true;
-		}
+	// ボス部屋に初めて入った時演出
+	if (inBossRoom && !isBossFightStarted_ && !isBossIntro_) {
+		skydome_->SetTargetColor(kBossFightSkyColor);
+		s_bossCheckpoint_ = true;
+		isBossIntro_ = true;
+		cameraController_->StartBossIntro();
+	}
+
+	// 演出が終わったら戦闘開始
+	if (isBossIntro_ && cameraController_->IsBossIntroFinished()) {
+		isBossIntro_ = false;
 		isBossFightStarted_ = true;
 	}
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include "KamataEngine.h"
 #include "MatrixFunction.h"
+#include <numbers>
 
 using namespace KamataEngine;
 class Player;
@@ -55,6 +56,8 @@ public:
 	AABB GetAABB();
 	// 撃破演出が終わって、ボスが倒れたかどうか
 	bool IsDead() const { return isDead_; }
+	// 撃破演出中かどうか
+	bool IsDying() const { return behavior_ == Behavior::kDeath || behaviorRequest_ == Behavior::kDeath; }
 	// 当たり判定を無効にしているかどうか（復活・撃破の演出中はtrue）
 	bool IsCollisionDisabled() const { return isCollisionDisabled_; }
 
@@ -128,6 +131,7 @@ private:
 	// 撃破演出の経過時間（秒）
 	float deathTimer_ = 0.0f;
 
+	Vector3 kModelRotate = {0.0f, -std::numbers::pi_v<float> / 2.0f, 0.0f};
 	// モデルの基本の大きさ
 	static inline const float kModelScale = 1.0f;
 	// 当たり判定の横幅

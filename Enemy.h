@@ -103,10 +103,6 @@ private:
 	// ワールド行列を更新する
 	void UpdateWorldTransform();
 
-	// デス演出用タイマー
-	float deathTimer_ = 0.0f;
-	static inline const float kDeathTime = 0.5f;
-
 	// 倒した時のヒットストップ（フレーム数）
 	static inline const int32_t kHitStopFrames = 2;
 

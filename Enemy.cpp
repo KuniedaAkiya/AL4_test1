@@ -38,7 +38,6 @@ void Enemy::Update() {
 			break;
 
 		case Behavior::kDeath:
-			deathTimer_ = 0.0f;
 			velocity_ = {0.0f, 0.0f, 0.0f};
 			break;
 
@@ -186,23 +185,12 @@ void Enemy::BehaviorWalkUpdate() {
 	UpdateWorldTransform();
 }
 
-// デス演出状態の更新
+// デス演出状態の更新（爆発パーティクルを出して、すぐ消える）
 void Enemy::BehaviorDeathUpdate() {
-	deathTimer_ += 1.0f / 60.0f;
-
-	// デス演出の開始直後に爆発パーティクルを生成
-	if (deathTimer_ <= 1.0f / 60.0f && gameScene_) {
-		// 共通関数を呼び出し（モデル: bossModel_, テクスチャ: enemyTextureHandle_, スケール: 0.2f, 個数: 12）
+	if (gameScene_) {
 		gameScene_->CreateSlimeExplosion(GetWorldPosition(), model_, enemyTextureHandle_, 0.2f, 12);
 	}
-
-	float t = std::clamp(deathTimer_ / kDeathTime, 0.0f, 1.0f);
-	worldTransform_.scale_ = {(1.0f - t) * 0.8f, (1.0f - t) * 0.8f, (1.0f - t) * 0.8f};
-	UpdateWorldTransform();
-
-	if (deathTimer_ >= kDeathTime) {
-		isDead_ = true;
-	}
+	isDead_ = true;
 }
 
 // 怯み状態の更新（ジャストガード時）

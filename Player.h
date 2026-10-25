@@ -55,7 +55,7 @@ public:
 	LRDirection GetLRDirection() const { return lrDirection_; }
 	AABB GetAABB();
 	bool isDead() const { return isDead_; }
-
+	bool IsOnGround() const { return onGround_; }
 	void SetmapChipField(MapChipField* mapChipField) { mapChipField_ = mapChipField; }
 
 	void OnCollision(const Enemy* enemy);
@@ -153,17 +153,20 @@ private:
 	bool isAttackUp_ = false;
 
 	// ==== 剣 ====
-	static inline const float kSwordScale = 1.5f;                       // 剣の大きさ倍率（追加）
-	static inline const float kSwordLength = 1.6f * kSwordScale;        // 刀身の長さ（変更）
-	static inline const float kSwordThickness = 0.3f * kSwordScale;     // 判定の太さ（変更）
-	static inline const Vector3 kSwordPivotOffset = {0.4f, 0.1f, 0.0f}; // 持ち手の位置（0.3f→0.4f）
+	static inline const float kSwordScale = 1.5f;                       // 剣の大きさ倍率
+	static inline const float kSwordLength = 1.6f * kSwordScale;        // 刀身の長さ
+	static inline const float kSwordThickness = 0.3f * kSwordScale;     // 判定の太さ
+	static inline const Vector3 kSwordPivotOffset = {0.4f, 0.1f, 0.0f}; // 持ち手の位置
 	static inline const float kSwordRestDegrees = -30.0f;
+
 	// ==== コンボ攻撃 ====
 	static inline const int32_t kMaxComboStep = 3;
 	static inline const float kComboChargeTimes[kMaxComboStep] = {0.08f, 0.05f, 0.12f};
 	static inline const float kComboSwingTimes[kMaxComboStep] = {0.16f, 0.16f, 0.25f};
 	static inline const float kComboAfterglowTimes[kMaxComboStep] = {0.12f, 0.14f, 0.22f};
-	static inline const float kComboLungeSpeeds[kMaxComboStep] = {0.18f, 0.18f, 0.3f}; // 踏み込み
+	static inline const float kComboLungeSpeeds[kMaxComboStep] = {0.12f, 0.10f, 0.25f};  // 踏み込み速度
+	static inline const float kComboRecoilDistances[kMaxComboStep] = {0.3f, 0.3f, 1.0f}; // ヒットバック（反動）距離
+
 	// 剣の角度（度）。0=真上、-90=前方、-180=真下。右向き基準で、左向きは自動で反転
 	static inline const float kSwordStartDegrees[kMaxComboStep] = {40.0f, -140.0f, 60.0f}; // 袈裟斬り → 切り上げ → 大振り
 	static inline const float kSwordEndDegrees[kMaxComboStep] = {-130.0f, 10.0f, -150.0f};
@@ -175,6 +178,7 @@ private:
 
 	// 攻撃が当たった時に付ける無敵時間（秒）
 	static inline const float kHitInvincibleTime = 0.3f;
+
 	// ==== カウンター攻撃 ====
 	static inline const float kCounterWindowTime = 1.0f; // ジャスガ成功後に反撃できる時間
 	static inline const float kCounterChargeTime = 0.08f;
@@ -239,11 +243,16 @@ private:
 	static inline const float kHpIconSize = 32.0f;
 	static inline const float kHpIconSpacing = 40.0f;
 
-	static inline const float kAcceleration = 0.05f;
+	// ---- 地上の動き ----
+	static inline const float kAcceleration = 0.08f;
 	static inline const float kAttenuation = 0.5f;
+	static inline const float kStopThreshold = 0.01f;
 	static inline const float kLimitRunSpeed = 0.2f;
 	static inline const float kTimeTurn = 0.3f;
-	static inline const float kAirAcceleration = 0.005f;
+	// ---- 空中の動き ----
+	static inline const float kAirAcceleration = 0.04f;
+	static inline const float kAirDrag = 0.1f;
+	static inline const float kAirTurnBrake = 0.15f;
 
 	static inline const float kGravityAcceleration = 0.07f;
 	static inline const float kLimitFallSpeed = 0.5f;
@@ -306,6 +315,5 @@ private:
 	// すり抜け防止の補助関数
 	bool IsBlockTile(MapChipType type) const { return type == MapChipType::kBlock || type == MapChipType::kTeleport; }
 	// 角の位置のチップを調べる。ぶつかるブロックなら true。TPチップなら、TP要求も立てる
-	// nextOffsetX/Y は、1つ手前（進んできた側）のチップへのずれ
 	bool IsCornerHit(const Vector3& cornerPosition, int32_t nextOffsetX, int32_t nextOffsetY);
 };
