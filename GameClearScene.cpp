@@ -68,17 +68,17 @@ void GameClearScene::Update() {
 
 	case Phase::kMain:
 		// 左右キーで切替
-		if (input->TriggerKey(DIK_LEFT) && currentSelect_ != MenuOption::kRetry) {
+		if (input->TriggerKey(DIK_A) && currentSelect_ != MenuOption::kRetry) {
 			currentSelect_ = MenuOption::kRetry;
-			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // ★ 選択移動音
-		} else if (input->TriggerKey(DIK_RIGHT) && currentSelect_ != MenuOption::kTitle) {
+			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // 選択移動音
+		} else if (input->TriggerKey(DIK_D) && currentSelect_ != MenuOption::kTitle) {
 			currentSelect_ = MenuOption::kTitle;
-			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // ★ 選択移動音
+			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // 選択移動音
 		}
 
 		// スペースキーで決定
 		if (input->TriggerKey(DIK_SPACE)) {
-			Audio::GetInstance()->PlayWave(seDecisionHandle_, false); // ★ 決定音
+			Audio::GetInstance()->PlayWave(seDecisionHandle_, false); // 決定音
 
 			if (currentSelect_ == MenuOption::kRetry) {
 				nextScene_ = IScene::Next::kPlay;

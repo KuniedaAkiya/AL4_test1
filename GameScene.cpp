@@ -434,6 +434,11 @@ void GameScene::CreateHitEffect(const Vector3& position) {
 void GameScene::CreateGuardEffect(const Vector3& position) { guardEffects_.push_back(GuardEffect::Create(position)); }
 
 void GameScene::UpdateBossRoom() {
+	// ボスの撃破演出が始まったら、空を元の青空に戻す
+	if (boss_->IsDying()) {
+		skydome_->SetTargetColor(kNormalSkyColor);
+	}
+
 	const bool inBossRoom = stage_->IsInBossRoom(player_->GetWorldPosition().x);
 
 	if (inBossRoom != isInBossRoom_) {

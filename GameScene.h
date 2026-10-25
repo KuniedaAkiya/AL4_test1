@@ -130,7 +130,8 @@ private:
 	static inline bool s_bossCheckpoint_ = false;
 
 	// 背景天球色
-	static inline const Vector4 kBossFightSkyColor = {0.9f, 0.35f, 0.35f, 1.0f};
+	static inline const Vector4 kNormalSkyColor = {1.0f, 1.0f, 1.0f, 1.0f};      // 道中
+	static inline const Vector4 kBossFightSkyColor = {0.9f, 0.35f, 0.35f, 1.0f}; // ボス戦
 
 	// 演出タイマー
 	int32_t hitStopFrames_ = 0;
