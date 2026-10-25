@@ -107,10 +107,11 @@ private:
 	static inline const float kDefeatZoomSpeed = 0.04f;   // 寄る速さ
 	static inline const float kDefeatFollowSpeed = 0.08f; // ボスへ向く速さ
 
-	float distance_ = kNormalDistance; // 今のカメラ距離
-	float leadY_ = 0.0f;               // 縦の先読み量（ジャンプ台の時だけ上）
-	bool isLookUp_ = false;            // 打ち上がり中か
-	float groundedY_ = 0.0f;           // カメラの縦の基準にする高さ
+	float distance_ = kNormalDistance;      // 今のカメラ距離
+	float startDistance_ = kNormalDistance; // ボス演出開始時のカメラ距離
+	float leadY_ = 0.0f;                    // 縦の先読み量（ジャンプ台の時だけ上）
+	bool isLookUp_ = false;                 // 打ち上がり中か
+	float groundedY_ = 0.0f;                // カメラの縦の基準にする高さ
 	float introTimer_ = 0.0f;
 	bool introRoared_ = false; // 登場演出の揺れを出したか
 

@@ -264,7 +264,7 @@ void Player::InputMove() {
 				velocity_.x = 0.0f;
 			}
 		}
-		if (input->PushKey(DIK_W)) {
+		if (input->PushKey(DIK_SPACE)) {
 			velocity_ += Vector3(0, kJumpAcceleration, 0);
 			Audio::GetInstance()->PlayWave(soundHandleJump_, false, kSEVolume);
 		}
@@ -420,7 +420,7 @@ void Player::PositionUpdate(const CollisionMapInfo& info) { worldTransform_.tran
 // ガードキーが押されているか
 bool Player::IsGuardKeyPressed() {
 	Input* input = Input::GetInstance();
-	return input->PushKey(DIK_LSHIFT) || input->PushKey(DIK_RSHIFT);
+	return input->PushKey(DIK_K);
 }
 
 // 当たり判定をしながら横に動く
@@ -513,7 +513,7 @@ void Player::BehaviorRootUpdate() {
 		coyoteTimer_ -= 1.0f / 60.0f;
 	}
 
-	const bool attackPressed = Input::GetInstance()->TriggerKey(DIK_RETURN);
+	const bool attackPressed = Input::GetInstance()->TriggerKey(DIK_J);
 	if (attackPressed && counterTimer_ > 0.0f) {
 		RequestCounterAttack();
 	} else if (attackPressed && (onGround_ || coyoteTimer_ > 0.0f)) {
@@ -582,7 +582,7 @@ void Player::BehaviorAttackUpdate() {
 
 	float swordReach = 0.0f;
 
-	if (!isCounterAttack_ && Input::GetInstance()->TriggerKey(DIK_RETURN)) {
+	if (!isCounterAttack_ && Input::GetInstance()->TriggerKey(DIK_J)) {
 		comboInputBuffered_ = true;
 	}
 
@@ -616,8 +616,8 @@ void Player::BehaviorAttackUpdate() {
 			swordReach = EaseOut(-kCounterPullBack, kCounterReach, t);
 		}
 
-		// まだ当たっていない場合のみ踏み込み移動を行う（めり込み防止）
-		if (!attackHit_) {
+		// 通常攻撃はヒット時にめり込み防止で停止し、カウンター攻撃時は貫通させるため継続する
+		if (!attackHit_ || isCounterAttack_) {
 			attackVelocity.x = (lrDirection_ == LRDirection::kRight) ? lungeSpeed : -lungeSpeed;
 		}
 
@@ -734,7 +734,11 @@ void Player::RequestCounterAttack() {
 // 攻撃が当たったことを記録する
 void Player::MarkAttackHit() {
 	attackHit_ = true;
-	GrantInvincible(kHitInvincibleTime);
+
+	// カウンター攻撃の時だけヒット時無敵を付与する
+	if (IsCounterAttack()) {
+		GrantInvincible(kHitInvincibleTime);
+	}
 
 	// カウンター攻撃以外の場合、コンボ段数に応じた反動（ヒットバック）を適用する
 	if (!IsCounterAttack()) {
@@ -811,7 +815,7 @@ void Player::BehaviorGuardUpdate() {
 		behaviorRequest_ = Behavior::kRoot;
 	}
 
-	if (counterTimer_ > 0.0f && Input::GetInstance()->TriggerKey(DIK_RETURN)) {
+	if (counterTimer_ > 0.0f && Input::GetInstance()->TriggerKey(DIK_J)) {
 		RequestCounterAttack();
 	}
 

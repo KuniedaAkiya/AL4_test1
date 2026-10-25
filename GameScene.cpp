@@ -447,6 +447,8 @@ void GameScene::UpdateBossRoom() {
 		s_bossCheckpoint_ = true;
 		isBossIntro_ = true;
 		cameraController_->StartBossIntro();
+
+		player_->HealFull(); // ★道中からボス部屋に入った瞬間だけ全快させる
 	}
 
 	// 演出が終わったら戦闘開始
