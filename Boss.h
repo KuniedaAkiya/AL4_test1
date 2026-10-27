@@ -68,10 +68,6 @@ public:
 	void SetCameraController(CameraController* cameraController) { cameraController_ = cameraController; }
 
 private:
-	// ==== 音の大きさ設定 ====
-	// 効果音の音量（0.0〜1.0）
-	static inline const float kSEVolume = 0.4f;
-
 	// ボスの3Dモデル
 	Model* model_ = nullptr;
 	// 描画に使うカメラ

@@ -1,5 +1,7 @@
 #include "GameClearScene.h"
+#include "AudioVolume.h"
 #include "MatrixFunction.h"
+#include <numbers>
 
 using namespace KamataEngine;
 
@@ -12,6 +14,8 @@ GameClearScene::~GameClearScene() {
 	delete titleModel_;
 	delete spaceModel_;
 	delete fade_;
+	delete skydome_;
+	delete skydomeModel_;
 }
 
 void GameClearScene::Initialize() {
@@ -26,9 +30,17 @@ void GameClearScene::Initialize() {
 	seSelectHandle_ = audio->LoadWave("Audio/SE_Select.mp3");
 	seDecisionHandle_ = audio->LoadWave("Audio/SE_Decision.mp3");
 
-	bgmPlayHandle_ = audio->PlayWave(bgmGameClearHandle_, true, 0.4f);
+	bgmPlayHandle_ = audio->PlayWave(bgmGameClearHandle_, true, AudioVolume::kBgmClear);
 
+	camera_.farZ = 1000.0f; // 天球（半径500）が映るように
 	camera_.Initialize();
+
+	// 背景の天球
+	skydomeModel_ = Model::CreateFromOBJ("SkyDome", true);
+	skydome_ = new Skydome();
+	skydome_->Initialize(skydomeModel_, &camera_);
+	skydome_->SetColor(kSkyColor);
+	skydome_->SetRotationSpeed(kSkyRotationSpeed);
 
 	// 3Dモデル読み込み
 	model_ = Model::CreateFromOBJ("GameClearFont", true);
@@ -40,21 +52,27 @@ void GameClearScene::Initialize() {
 	worldTransform_.Initialize();
 	worldTransform_.translation_ = {0.0f, 2.0f, -20.0f};
 	worldTransform_.scale_ = {0.0f, 0.0f, 0.0f};
+	worldTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	retryTransform_.Initialize();
 	retryTransform_.translation_ = {-12.0f, -13.0f, 0.0f};
+	retryTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	titleTransform_.Initialize();
 	titleTransform_.translation_ = {12.0f, -13.0f, 0.0f};
+	titleTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	spaceTransform_.Initialize();
 	spaceTransform_.translation_ = {0.0f, -4.5f, -10.0f};
+	spaceTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	currentSelect_ = MenuOption::kRetry;
 	animTimer_ = 0.0f;
 }
 
 void GameClearScene::Update() {
+	skydome_->Update();
+
 	Input* input = Input::GetInstance();
 
 	switch (phase_) {
@@ -70,15 +88,15 @@ void GameClearScene::Update() {
 		// 左右キーで切替
 		if (input->TriggerKey(DIK_A) && currentSelect_ != MenuOption::kRetry) {
 			currentSelect_ = MenuOption::kRetry;
-			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // 選択移動音
+			Audio::GetInstance()->PlayWave(seSelectHandle_, false, AudioVolume::kSeSelect); // 選択移動音
 		} else if (input->TriggerKey(DIK_D) && currentSelect_ != MenuOption::kTitle) {
 			currentSelect_ = MenuOption::kTitle;
-			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // 選択移動音
+			Audio::GetInstance()->PlayWave(seSelectHandle_, false, AudioVolume::kSeSelect); // 選択移動音
 		}
 
 		// スペースキーで決定
 		if (input->TriggerKey(DIK_SPACE)) {
-			Audio::GetInstance()->PlayWave(seDecisionHandle_, false); // 決定音
+			Audio::GetInstance()->PlayWave(seDecisionHandle_, false, AudioVolume::kSeDecision); // 決定音
 
 			if (currentSelect_ == MenuOption::kRetry) {
 				nextScene_ = IScene::Next::kPlay;
@@ -138,6 +156,8 @@ void GameClearScene::Update() {
 
 void GameClearScene::Draw() {
 	Model::PreDraw();
+
+	skydome_->Draw(); // 背景は最初に描く
 
 	if (model_)
 		model_->Draw(worldTransform_, camera_);

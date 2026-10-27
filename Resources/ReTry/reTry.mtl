@@ -1,2 +1,11 @@
-# Blender 5.1.1 MTL File: 'ReTry.blend'
-# www.blender.org
+# generated
+newmtl Material
+Ns 60.000000
+Ka 1.000000 1.000000 1.000000
+Kd 1.0000 1.0000 1.0000
+Ks 0.200000 0.200000 0.200000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd reTry.png

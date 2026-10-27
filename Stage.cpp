@@ -1,5 +1,6 @@
 #include "Stage.h"
 #include "MatrixFunction.h"
+#include <algorithm>
 
 Stage::~Stage() {
 	for (std::vector<WorldTransform*>& line : worldTransformBlocks_) {
@@ -9,6 +10,9 @@ Stage::~Stage() {
 	}
 	worldTransformBlocks_.clear();
 	delete blockModel_;
+	delete spikeModel_;
+	delete jumpPadModel_;
+	delete teleportModel_;
 	delete mapChipField_;
 }
 
@@ -16,11 +20,12 @@ void Stage::Initialize(const std::string& csvPath) {
 	blockModel_ = Model::CreateFromOBJ("block", true);
 	blockTextureHandle_ = TextureManager::Load("block/block.png");
 
-	// 棘とジャンプ台の色
-	spikeColor_.Initialize();
-	spikeColor_.SetColor({0.9f, 0.15f, 0.15f, 1.0f});
-	jumpPadColor_.Initialize();
-	jumpPadColor_.SetColor({0.2f, 1.0f, 0.4f, 1.0f});
+	spikeModel_ = Model::CreateFromOBJ("spike", true);
+	spikeTextureHandle_ = TextureManager::Load("spike/spike.png");
+	jumpPadModel_ = Model::CreateFromOBJ("jumpPad", true);
+	jumpPadTextureHandle_ = TextureManager::Load("jumpPad/jumpPad.png");
+	teleportModel_ = Model::CreateFromOBJ("teleport", true);
+	teleportTextureHandle_ = TextureManager::Load("teleport/teleport.png");
 
 	mapChipField_ = new MapChipField();
 	mapChipField_->LoadMapChipData(csvPath);
@@ -52,9 +57,7 @@ void Stage::GenerateBlocks() {
 
 				WorldTransform* worldTransform = new WorldTransform();
 				worldTransform->Initialize();
-				worldTransform->scale_ = {kSpikeScale, kSpikeScale, kSpikeScale};
-				worldTransform->rotation_.z = 0.7853982f; // 45度
-				worldTransform->translation_ = {center.x, bottom + kSpikeScale * 1.41421356f / 2.0f, center.z};
+				worldTransform->translation_ = center;
 				worldTransformBlocks_[i][j] = worldTransform;
 
 				AABB hit;
@@ -68,8 +71,7 @@ void Stage::GenerateBlocks() {
 
 				WorldTransform* worldTransform = new WorldTransform();
 				worldTransform->Initialize();
-				worldTransform->scale_ = {0.9f, kJumpPadHeight, 0.9f};
-				worldTransform->translation_ = {center.x, bottom + kJumpPadHeight / 2.0f, center.z};
+				worldTransform->translation_ = center;
 				worldTransformBlocks_[i][j] = worldTransform;
 
 				AABB hit;
@@ -79,9 +81,7 @@ void Stage::GenerateBlocks() {
 			}
 		}
 	}
-}
-
-void Stage::Update() {
+	// ブロックは動かないので、行列は最初に1回だけ作る
 	for (std::vector<WorldTransform*>& line : worldTransformBlocks_) {
 		for (WorldTransform* block : line) {
 			if (!block) {
@@ -93,20 +93,29 @@ void Stage::Update() {
 	}
 }
 
+void Stage::Update() {}
+
 void Stage::Draw(const Camera& camera) {
+	// 画面に映るブロックだけ描画
+	const int32_t center = static_cast<int32_t>(camera.translation_.x / MapChipField::kBlockWidth + 0.5f);
+	const int32_t first = (std::max)(0, center - kDrawColumnRange);
+	const int32_t last = (std::min)(static_cast<int32_t>(MapChipField::kNumBlockHorizontal) - 1, center + kDrawColumnRange);
+
 	for (uint32_t i = 0; i < worldTransformBlocks_.size(); i++) {
-		for (uint32_t j = 0; j < worldTransformBlocks_[i].size(); j++) {
+		for (int32_t j = first; j <= last; j++) {
 			WorldTransform* block = worldTransformBlocks_[i][j];
 			if (!block) {
 				continue;
 			}
 
-			// チップの種類によって、色を変えて描く
+			// チップの種類によって、モデルを使い分ける
 			const MapChipType type = mapChipField_->GetMapChipTypeByIndex(j, i);
 			if (type == MapChipType::kSpike) {
-				blockModel_->Draw(*block, camera, &spikeColor_);
+				spikeModel_->Draw(*block, camera, spikeTextureHandle_);
 			} else if (type == MapChipType::kJumpPad) {
-				blockModel_->Draw(*block, camera, &jumpPadColor_);
+				jumpPadModel_->Draw(*block, camera, jumpPadTextureHandle_);
+			} else if (type == MapChipType::kTeleport) {
+				teleportModel_->Draw(*block, camera, teleportTextureHandle_);
 			} else {
 				blockModel_->Draw(*block, camera, blockTextureHandle_);
 			}

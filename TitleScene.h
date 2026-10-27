@@ -1,6 +1,7 @@
 #pragma once
 #include "IScene.h"
 #include "KamataEngine.h"
+#include "Skydome.h"
 
 using namespace KamataEngine;
 
@@ -24,6 +25,12 @@ private:
 
 	// カメラ
 	Camera camera_{};
+
+	// ===== 背景（天球） =====
+	Model* skydomeModel_ = nullptr;
+	Skydome* skydome_ = nullptr;
+	static inline const Vector4 kSkyColor = {1.25f, 0.95f, 0.95f, 1.0f}; // 夕暮れのピンク紫
+	static inline const float kSkyRotationSpeed = 0.0005f;               // 回る速さ（1フレームあたりのラジアン）
 
 	// ===== タイトルの動き =====
 	// 経過時間（秒）

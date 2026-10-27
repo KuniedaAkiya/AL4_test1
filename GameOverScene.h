@@ -2,6 +2,7 @@
 #include "Fade.h"
 #include "IScene.h"
 #include "KamataEngine.h"
+#include "Skydome.h"
 
 using namespace KamataEngine;
 
@@ -24,6 +25,12 @@ private:
 	Fade* fade_ = nullptr;
 	Camera camera_{};
 
+	// ===== 背景（天球） =====
+	Model* skydomeModel_ = nullptr;
+	Skydome* skydome_ = nullptr;
+	static inline const Vector4 kSkyColor = {0.35f, 0.20f, 0.45f, 1.0f}; // 暗い藍色の夜空
+	static inline const float kSkyRotationSpeed = 0.0005f;               // 回る速さ（1フレームあたりのラジアン）
+
 	// 3Dモデル
 	Model* model_ = nullptr;
 	Model* retryModel_ = nullptr;
@@ -38,6 +45,9 @@ private:
 
 	// 選択状態
 	MenuOption currentSelect_ = MenuOption::kRetry;
+
+	// ボス戦で死んだか（true なら「やり直す」を「ボス戦から！」にする）
+	bool isBossRetry_ = false;
 
 	// ロゴの最終位置
 	static inline const Vector3 kLogoPosition = {0.0f, 10.0f, 0.0f};

@@ -1,9 +1,9 @@
 #define NOMINMAX
 #include "Player.h"
+#include "AudioVolume.h"
 #include "GameScene.h"
 #include "MapChipField.h"
 #include "MatrixFunction.h"
-#include "ShieldEnemy.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -62,14 +62,20 @@ void Player::Initialize(Model* model, Model* modelAttack, Camera* camera, uint32
 	mpBarFrameSprite_ = Sprite::Create(mpFrameTextureHandle, kMpBarPosition);
 	mpBarFrameSprite_->SetSize({kMpBarWidth, kMpBarHeight});
 
+	// 音声データの読み込み
 	soundHandleDamage_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Damage.mp3");
 	soundHandleJustGuard_ = Audio::GetInstance()->LoadWave("Audio/SE_Parry_Success.mp3");
 	soundHandleJump_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Jump.mp3");
 	soundHandleCounter_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Counter.mp3");
+	soundHandleAttack_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_attack.mp3");
+	soundHandleAttackHit_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Attack_hit.mp3");
+	soundHandleDead_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Dead.mp3");
+	soundHandleLanding_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Landing.mp3");
 }
 
 // 更新
 void Player::Update() {
+	wasOnGround_ = onGround_;
 	isJustGuardSuccess_ = false;
 
 	if (counterTimer_ > 0.0f) {
@@ -203,9 +209,6 @@ AABB Player::GetAABB() {
 // 敵との当たり判定
 void Player::OnCollision(const Enemy* /*enemy*/) { HandleEnemyContact(); }
 
-// シールド敵との当たり判定
-void Player::OnCollision(const ShieldEnemy* /*shieldEnemy*/) { HandleEnemyContact(); }
-
 // ボスとの当たり判定
 void Player::OnCollision(const Boss* /*boss*/) { HandleEnemyContact(); }
 
@@ -266,7 +269,8 @@ void Player::InputMove() {
 		}
 		if (input->PushKey(DIK_SPACE)) {
 			velocity_ += Vector3(0, kJumpAcceleration, 0);
-			Audio::GetInstance()->PlayWave(soundHandleJump_, false, kSEVolume);
+			isJumping_ = true;
+			Audio::GetInstance()->PlayWave(soundHandleJump_, false, AudioVolume::kSePlayerJump);
 		}
 	} else {
 		if (dir != 0.0f) {
@@ -457,8 +461,11 @@ void Player::UpdateHpSprites() {
 void Player::Die() {
 	hp_ = 0;
 	isDead_ = true;
+
+	Audio::GetInstance()->PlayWave(soundHandleDead_, false, AudioVolume::kSePlayerDead);
+
 	if (gameScene_) {
-		gameScene_->CreateSlimeExplosion(GetWorldPosition(), playerModel_, playerTextureHandle_, 0.25f, 20);
+		gameScene_->CreateDeathParticles(GetWorldPosition(), GameScene::kDeathColorPlayer, 0.5f, 28);
 	}
 }
 
@@ -478,11 +485,17 @@ void Player::WallCollision(const CollisionMapInfo& info) {
 
 // 接地状態の変更
 void Player::ChangeGroundingState(const CollisionMapInfo& info) {
+
+	// 今の接地状態を記録しておく
+	bool previousOnGround = onGround_;
+
 	if (onGround_) {
+
 		if (velocity_.y > 0.0f) {
 			onGround_ = false;
+
 		} else {
-			const Vector3 nextPosition = worldTransform_.translation_ + info.move;
+			const Vector3 nextPosition = worldTransform_.translation_ + info.move + Vector3(0.0f, -kGroundSearchHeight, 0.0f);
 			const MapChipField::IndexSet leftIndex = mapChipField_->GetMapChipIndexByPosition(CornerPosition(nextPosition, kLeftBottom));
 			const MapChipField::IndexSet rightIndex = mapChipField_->GetMapChipIndexByPosition(CornerPosition(nextPosition, kRightBottom));
 			const bool hit =
@@ -497,6 +510,11 @@ void Player::ChangeGroundingState(const CollisionMapInfo& info) {
 			velocity_.x *= (1.0f - kAttenuationLanding);
 			velocity_.y = 0.0f;
 		}
+	}
+	// ジャンプしてから着地した時だけ、着地音を鳴らす
+	if (!previousOnGround && onGround_ && isJumping_) {
+		isJumping_ = false;
+		Audio::GetInstance()->PlayWave(soundHandleLanding_, false, AudioVolume::kSePlayerLanding);
 	}
 }
 
@@ -556,7 +574,9 @@ void Player::BehaviorAttackInitialize() {
 
 	if (isCounterAttack_) {
 		isAttackUp_ = true;
-		Audio::GetInstance()->PlayWave(soundHandleCounter_, false, kSEVolume);
+		Audio::GetInstance()->PlayWave(soundHandleCounter_, false, AudioVolume::kSePlayerCounter);
+	} else {
+		Audio::GetInstance()->PlayWave(soundHandleAttack_, false, AudioVolume::kSePlayerAttack);
 	}
 }
 
@@ -836,7 +856,7 @@ void Player::OnJustGuardSuccess() {
 	hasJustGuarded_ = true;
 
 	isJustGuardSuccess_ = true;
-	Audio::GetInstance()->PlayWave(soundHandleJustGuard_, false, kSEVolume);
+	Audio::GetInstance()->PlayWave(soundHandleJustGuard_, false, AudioVolume::kSeJustGuard);
 
 	isInvincible_ = true;
 	invincibleTimer_ = -kJustGuardBonusInvincibleTime;
@@ -857,7 +877,7 @@ void Player::OnJustGuardSuccess() {
 void Player::TakeDamage() {
 	hp_--;
 	counterTimer_ = 0.0f;
-	Audio::GetInstance()->PlayWave(soundHandleDamage_, false, kSEVolume);
+	Audio::GetInstance()->PlayWave(soundHandleDamage_, false, AudioVolume::kSePlayerDamage);
 
 	if (hp_ <= 0) {
 		Die();
@@ -893,7 +913,8 @@ void Player::Launch(float power) {
 	}
 	velocity_.y = power;
 	onGround_ = false;
-	Audio::GetInstance()->PlayWave(soundHandleJump_, false, kSEVolume);
+	isJumping_ = true;
+	Audio::GetInstance()->PlayWave(soundHandleJump_, false, AudioVolume::kSePlayerJump);
 }
 
 // 攻撃命中時の反動で後ろに下がる処理

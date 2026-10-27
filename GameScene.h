@@ -80,6 +80,9 @@ public:
 	// チェックポイントリセット
 	static void ResetCheckpoint() { s_bossCheckpoint_ = false; }
 
+	// チェックポイント状態の取得
+	static bool IsBossCheckpoint() { return s_bossCheckpoint_; }
+
 	// スロー演出を要求する
 	void RequestSlow(int32_t frames) { slowFrames_ = (std::max)(slowFrames_, frames); }
 
@@ -90,10 +93,15 @@ public:
 	void CreateHitParticles(const Vector3& position);
 
 	// ボス被弾時のパーティクル（少しだけ飛び散る）
-	void CreateBossHitParticles(const Vector3& position, Model* model, uint32_t textureHandle);
+	void CreateBossHitParticles(const Vector3& position);
 
-	// 【共通】スライム爆発パーティクル
-	void CreateSlimeExplosion(const Vector3& position, Model* model, uint32_t textureHandle, float baseScale, int32_t particleCount);
+	// 【共通】死亡パーティクル（敵・ボス・プレイヤーで共有。色・大きさ・個数だけ変える）
+	void CreateDeathParticles(const Vector3& position, const Vector4& color, float baseScale, int32_t particleCount);
+
+	// 死亡パーティクルの色
+	static inline const Vector4 kDeathColorEnemy = {1.00f, 0.55f, 0.15f, 1.0f};  // 敵：オレンジ
+	static inline const Vector4 kDeathColorBoss = {0.65f, 0.15f, 0.70f, 1.0f};   // ボス：紫
+	static inline const Vector4 kDeathColorPlayer = {0.45f, 0.95f, 0.90f, 1.0f}; // プレイヤー：水色
 
 	// ボスにすぐ行ける奴（デバッグ用）
 	static void SetBossCheckpoint(bool flag = true) { s_bossCheckpoint_ = flag; }
@@ -147,6 +155,8 @@ private:
 
 	// パーティクルを1つ生成してリストに追加する
 	void AddParticle(const Particle::Parameter& param);
+	// 複数のパーティクルをまとめてリストに追加する
+	void AddParticles(const std::vector<Particle::Parameter>& params);
 	// プレイヤーの位置に合わせて、カメラを引く要求を出す
 	void UpdateCameraZoom(bool touchedJumpPad);
 
@@ -185,14 +195,29 @@ private:
 	// インスタンス
 	Player* player_ = nullptr;
 	Boss* boss_ = nullptr;
+	Model* enemyModel_ = nullptr;
+	Model* deathParticleModel_ = nullptr;
 	Skydome* skydome_ = nullptr;
 	Stage* stage_ = nullptr;
 
 	// ハンドル
 	uint32_t playerDataHandle_ = 0;
 	uint32_t bossDataHandle_ = 0;
+	uint32_t enemyDataHandle_ = 0;
 	uint32_t bgmBossHandle_ = 0;
 	uint32_t bgmPlayHandle_ = 0;
+	uint32_t bgmStageHandle_ = 0;
+	uint32_t seTeleportHandle_ = 0;
+	uint32_t seBossStartHandle_ = 0;
+	uint32_t seHealHandle_ = 0;
+
+	// BGMの管理（今どのBGMが流れているか）
+	bool hasBgm_ = false;
+	uint32_t currentBgmHandle_ = 0;
+	// BGMを切り替える（すでに同じBGMが流れていたら何もしない）
+	void PlayBgm(uint32_t soundHandle);
+	// BGMを止める
+	void StopBgm();
 
 	// モデル
 	Model* modelSkydome_ = nullptr;

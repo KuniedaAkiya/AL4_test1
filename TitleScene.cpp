@@ -1,7 +1,9 @@
 #include "TitleScene.h"
+#include "AudioVolume.h"
 #include "GameScene.h"
 #include "MatrixFunction.h"
 #include <cmath>
+#include <numbers>
 
 using namespace KamataEngine;
 
@@ -9,6 +11,8 @@ TitleScene::~TitleScene() {
 	Audio::GetInstance()->StopWave(bgmPlayHandle_);
 	delete titleFontModel_;
 	delete spaceFontModel_;
+	delete skydome_;
+	delete skydomeModel_;
 }
 
 void TitleScene::Initialize() {
@@ -19,15 +23,24 @@ void TitleScene::Initialize() {
 	camera_.translation_ = {0.0f, 0.0f, -15.0f};
 	camera_.Initialize();
 
+	// 背景の天球
+	skydomeModel_ = Model::CreateFromOBJ("SkyDome", true);
+	skydome_ = new Skydome();
+	skydome_->Initialize(skydomeModel_, &camera_);
+	skydome_->SetColor(kSkyColor);
+	skydome_->SetRotationSpeed(kSkyRotationSpeed);
+
 	// 3Dモデルの読み込み
 	titleFontModel_ = Model::CreateFromOBJ("titleFont", true);
 	spaceFontModel_ = Model::CreateFromOBJ("decision", true);
 	// トランスフォームの初期化
 	titleFontTransform_.Initialize();
 	titleFontTransform_.translation_ = {0.0f, 2.0f, 5.0f};
+	titleFontTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	spaceFontTransform_.Initialize();
 	spaceFontTransform_.translation_ = {0.0f, -2.5f, 10.0f};
+	spaceFontTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	// 点滅用の色の初期化
 	spaceFontColor_.Initialize();
@@ -36,10 +49,12 @@ void TitleScene::Initialize() {
 
 	// BGMの読み込みとループ再生（第2引数を true にするとループ)
 	soundHandleBGM_ = Audio::GetInstance()->LoadWave("Audio/BGM_Title.mp3");
-	bgmPlayHandle_ = Audio::GetInstance()->PlayWave(soundHandleBGM_, true);
+	bgmPlayHandle_ = Audio::GetInstance()->PlayWave(soundHandleBGM_, true, AudioVolume::kBgmTitle);
 }
 
 void TitleScene::Update() {
+	skydome_->Update();
+
 	// SPACEキーで決定
 	if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
 		nextScene_ = IScene::Next::kPlay;
@@ -69,6 +84,8 @@ void TitleScene::Update() {
 
 void TitleScene::Draw() {
 	Model::PreDraw();
+
+	skydome_->Draw(); // 背景は最初に描く
 
 	if (titleFontModel_) {
 		titleFontModel_->Draw(titleFontTransform_, camera_);
