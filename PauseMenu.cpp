@@ -1,4 +1,5 @@
 #include "PauseMenu.h"
+#include "AudioVolume.h"
 
 PauseMenu::~PauseMenu() {
 	delete pauseSprite_;
@@ -56,11 +57,11 @@ PauseMenu::Action PauseMenu::Update(bool& isPaused) {
 		// 上下キーで選択項目を移動（ループさせる）
 		if (Input::GetInstance()->TriggerKey(DIK_UP)) {
 			selectedIndex_ = (selectedIndex_ - 1 + kOptionCount) % kOptionCount;
-			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // ★ 選択音
+			Audio::GetInstance()->PlayWave(seSelectHandle_, false, AudioVolume::kSeSelect); // ★ 選択音
 		}
 		if (Input::GetInstance()->TriggerKey(DIK_DOWN)) {
 			selectedIndex_ = (selectedIndex_ + 1) % kOptionCount;
-			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // ★ 選択音
+			Audio::GetInstance()->PlayWave(seSelectHandle_, false, AudioVolume::kSeSelect); // ★ 選択音
 		}
 
 		// カーソルの位置を選択項目に合わせる
@@ -70,7 +71,7 @@ PauseMenu::Action PauseMenu::Update(bool& isPaused) {
 
 		// SPACEキーで決定
 		if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
-			Audio::GetInstance()->PlayWave(seDecisionHandle_, false); // ★ 決定音
+			Audio::GetInstance()->PlayWave(seDecisionHandle_, false, AudioVolume::kSeDecision); // ★ 決定音
 
 			switch (selectedIndex_) {
 			case 0: // ゲームを再開
@@ -92,7 +93,7 @@ PauseMenu::Action PauseMenu::Update(bool& isPaused) {
 	case SubState::kControls:
 		// SPACEキーでポーズ画面（メニュー）に戻る
 		if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
-			Audio::GetInstance()->PlayWave(seDecisionHandle_, false); // ★ 決定音（またはキャンセル音）
+			Audio::GetInstance()->PlayWave(seDecisionHandle_, false, AudioVolume::kSeDecision); // ★ 決定音（またはキャンセル音）
 			subState_ = SubState::kMenu;
 		}
 		break;

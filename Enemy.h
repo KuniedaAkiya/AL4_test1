@@ -91,6 +91,8 @@ private:
 	static inline const float kWidth = 0.8f;
 	static inline const float kHeight = 0.8f;
 
+	uint32_t soundHandleHit_ = 0;
+
 	// ===== 状態管理 =====
 	Behavior behavior_ = Behavior::kWalk;
 	Behavior behaviorRequest_ = Behavior::kUnknown;

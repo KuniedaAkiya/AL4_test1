@@ -6,7 +6,6 @@
 using namespace KamataEngine;
 
 class Enemy;
-class ShieldEnemy;
 class Boss;
 class GameScene;
 class CameraController;
@@ -59,7 +58,6 @@ public:
 	void SetmapChipField(MapChipField* mapChipField) { mapChipField_ = mapChipField; }
 
 	void OnCollision(const Enemy* enemy);
-	void OnCollision(const ShieldEnemy* shieldEnemy);
 	void OnCollision(const Boss* boss);
 
 	Vector3 CornerPosition(const Vector3& center, Corner corner);
@@ -137,9 +135,6 @@ public:
 	void SetCameraController(CameraController* cameraController) { cameraController_ = cameraController; }
 
 private:
-	// ==== 音の大きさ設定 ====
-	static inline const float kSEVolume = 0.4f;
-
 	enum class KnockbackPhase {
 		kFly,
 		kRecover,
@@ -269,6 +264,9 @@ private:
 	static inline const float kWidth = 0.8f;
 	static inline const float kHeight = 0.8f;
 	static inline const float kBlank = 0.01f;
+	static inline const float kGroundSearchHeight = 0.06f;
+	bool wasOnGround_ = false;
+	bool isJumping_ = false;
 
 	static inline const float kAttenuationLanding = 0.01f;
 	static inline const float kAttenuationWall = 0.01f;
@@ -296,6 +294,10 @@ private:
 	uint32_t soundHandleDamage_ = 0;
 	uint32_t soundHandleJustGuard_ = 0;
 	uint32_t soundHandleJump_ = 0;
+	uint32_t soundHandleAttack_ = 0;
+	uint32_t soundHandleAttackHit_ = 0;
+	uint32_t soundHandleDead_ = 0;
+	uint32_t soundHandleLanding_ = 0;
 
 	// 当たり判定をしながら横に動く
 	void MoveHorizontal(float dx);

@@ -1,5 +1,8 @@
 #include "GameOverScene.h"
+#include "AudioVolume.h"
+#include "GameScene.h"
 #include "MatrixFunction.h"
+#include <numbers>
 
 using namespace KamataEngine;
 
@@ -12,6 +15,8 @@ GameOverScene::~GameOverScene() {
 	delete titleModel_;
 	delete spaceModel_;
 	delete fade_;
+	delete skydome_;
+	delete skydomeModel_;
 }
 
 void GameOverScene::Initialize() {
@@ -26,34 +31,50 @@ void GameOverScene::Initialize() {
 	seSelectHandle_ = audio->LoadWave("Audio/SE_Select.mp3");
 	seDecisionHandle_ = audio->LoadWave("Audio/SE_Decision.mp3");
 
-	bgmPlayHandle_ = audio->PlayWave(bgmGameOverHandle_, true, 0.4f);
+	bgmPlayHandle_ = audio->PlayWave(bgmGameOverHandle_, true, AudioVolume::kBgmGameOver);
 
+	camera_.farZ = 1000.0f; // 天球（半径500）が映るように
 	camera_.Initialize();
+
+	// 背景の天球
+	skydomeModel_ = Model::CreateFromOBJ("SkyDome", true);
+	skydome_ = new Skydome();
+	skydome_->Initialize(skydomeModel_, &camera_);
+	skydome_->SetColor(kSkyColor);
+	skydome_->SetRotationSpeed(kSkyRotationSpeed);
 
 	// 3Dモデル読み込み
 	model_ = Model::CreateFromOBJ("gameOverFont", true);
-	retryModel_ = Model::CreateFromOBJ("reTry", true);      // 「やり直す」
-	titleModel_ = Model::CreateFromOBJ("titleGuide", true); // 「タイトルへ」
-	spaceModel_ = Model::CreateFromOBJ("decision", true);   // 「スペースで決定」
+	// ボス戦で死んだ時は、「やり直す」を「ボス戦から！」にする
+	isBossRetry_ = GameScene::IsBossCheckpoint();
+	retryModel_ = Model::CreateFromOBJ(isBossRetry_ ? "reTryBoss" : "reTry", true); // 「やり直す」or「ボス戦から！」
+	titleModel_ = Model::CreateFromOBJ("titleGuide", true);                         // 「タイトルへ」
+	spaceModel_ = Model::CreateFromOBJ("decision", true);                           // 「スペースで決定」
 
 	// 初期位置設定
 	worldTransform_.Initialize();
 	worldTransform_.translation_ = kLogoPosition + Vector3{0.0f, kFallDropHeight, 0.0f};
+	worldTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	retryTransform_.Initialize();
 	retryTransform_.translation_ = {-12.0f, -13.0f, 0.0f};
+	retryTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	titleTransform_.Initialize();
 	titleTransform_.translation_ = {12.0f, -13.0f, 0.0f};
+	titleTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	spaceTransform_.Initialize();
 	spaceTransform_.translation_ = {0.0f, -4.5f, -10.0f};
+	spaceTransform_.rotation_.y = std::numbers::pi_v<float>;
 
 	currentSelect_ = MenuOption::kRetry;
 	animTimer_ = 0.0f;
 }
 
 void GameOverScene::Update() {
+	skydome_->Update();
+
 	Input* input = Input::GetInstance();
 
 	switch (phase_) {
@@ -67,17 +88,17 @@ void GameOverScene::Update() {
 
 	case Phase::kMain:
 		// 左右キーで「やり直す」と「タイトルへ」を切替
-		if (input->TriggerKey(DIK_LEFT) && currentSelect_ != MenuOption::kRetry) {
+		if (input->TriggerKey(DIK_A) && currentSelect_ != MenuOption::kRetry) {
 			currentSelect_ = MenuOption::kRetry;
-			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // ★ 選択切り替え音
-		} else if (input->TriggerKey(DIK_RIGHT) && currentSelect_ != MenuOption::kTitle) {
+			Audio::GetInstance()->PlayWave(seSelectHandle_, false, AudioVolume::kSeSelect); // 選択切り替え音
+		} else if (input->TriggerKey(DIK_D) && currentSelect_ != MenuOption::kTitle) {
 			currentSelect_ = MenuOption::kTitle;
-			Audio::GetInstance()->PlayWave(seSelectHandle_, false); // ★ 選択切り替え音
+			Audio::GetInstance()->PlayWave(seSelectHandle_, false, AudioVolume::kSeSelect); // 選択切り替え音
 		}
 
 		// スペースキーで決定
 		if (input->TriggerKey(DIK_SPACE)) {
-			Audio::GetInstance()->PlayWave(seDecisionHandle_, false); // ★ 決定音
+			Audio::GetInstance()->PlayWave(seDecisionHandle_, false, AudioVolume::kSeDecision); // 決定音
 
 			if (currentSelect_ == MenuOption::kRetry) {
 				nextScene_ = IScene::Next::kPlay;
@@ -142,6 +163,8 @@ void GameOverScene::Update() {
 
 void GameOverScene::Draw() {
 	Model::PreDraw();
+
+	skydome_->Draw(); // 背景は最初に描く
 
 	if (model_)
 		model_->Draw(worldTransform_, camera_);

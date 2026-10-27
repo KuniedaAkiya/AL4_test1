@@ -1,13 +1,12 @@
 #include "GameScene.h"
+#include "AudioVolume.h"
 #include "MatrixFunction.h"
+#include <cmath>
 #include <cstdlib>
 
 using namespace KamataEngine;
 
 namespace {
-// 0.0〜1.0 の乱数
-float Rand01() { return static_cast<float>(rand()) / RAND_MAX; }
-
 // 全部更新して、消えたものを削除する
 template<typename T> void UpdateAndRemoveDead(std::list<T*>& list) {
 	for (T* item : list) {
@@ -24,10 +23,12 @@ template<typename T> void UpdateAndRemoveDead(std::list<T*>& list) {
 } // namespace
 
 GameScene::~GameScene() {
-	Audio::GetInstance()->StopWave(bgmPlayHandle_);
+	StopBgm();
 
 	delete playerModel_;
 	delete boss_;
+	delete enemyModel_;
+	delete deathParticleModel_;
 	delete bossModel_;
 	delete particleModel_;
 	delete modelAttack_;
@@ -55,14 +56,21 @@ void GameScene::Initialize() {
 	phase_ = Phase::kFadeIn;
 
 	Audio* audio = Audio::GetInstance();
+	bgmStageHandle_ = audio->LoadWave("Audio/BGM_GameScene.mp3");
 	bgmBossHandle_ = audio->LoadWave("Audio/BGM_Boss_Phase1.mp3");
-	bgmPlayHandle_ = audio->PlayWave(bgmBossHandle_, true, 0.4f);
+	seTeleportHandle_ = audio->LoadWave("Audio/SE_TP.mp3");
+	seBossStartHandle_ = audio->LoadWave("Audio/SE_Boss_Start_Sound.mp3");
+	seHealHandle_ = audio->LoadWave("Audio/SE_Heal.mp3");
 
 	playerDataHandle_ = TextureManager::Load("player/player.png");
 	bossDataHandle_ = TextureManager::Load("boss/boss.png");
+	enemyDataHandle_ = TextureManager::Load("enemy/enemy.png");
 
 	playerModel_ = Model::CreateFromOBJ("player", true);
 	bossModel_ = Model::CreateFromOBJ("boss", true);
+	bossModel_ = Model::CreateFromOBJ("boss", true);
+	enemyModel_ = Model::CreateFromOBJ("enemy", true);
+	deathParticleModel_ = Model::CreateFromOBJ("deathParticle", true);
 	modelSkydome_ = Model::CreateFromOBJ("SkyDome", true);
 	particleModel_ = Model::CreateFromOBJ("particle", true);
 	modelAttack_ = Model::CreateFromOBJ("Sword", true);
@@ -99,7 +107,7 @@ void GameScene::Initialize() {
 		enemyPosition.y -= kEnemySpawnYOffset;
 
 		Enemy* enemy = new Enemy();
-		enemy->Initialize(bossModel_, &camera_, bossDataHandle_, enemyPosition);
+		enemy->Initialize(enemyModel_, &camera_, enemyDataHandle_, enemyPosition);
 		enemy->SetmapChipField(mapChipField);
 		enemy->SetGameScene(this);
 		enemy->SetPlayer(player_);
@@ -122,6 +130,10 @@ void GameScene::Initialize() {
 	cameraController_->Initialize(&camera_);
 	isInBossRoom_ = s_bossCheckpoint_;
 	isBossFightStarted_ = s_bossCheckpoint_;
+
+	// 道中は通常BGM。ボス戦のチェックポイントから始めた時は、最初からボスBGM
+	PlayBgm(isInBossRoom_ ? bgmBossHandle_ : bgmStageHandle_);
+
 	if (s_bossCheckpoint_) {
 		skydome_->SetTargetColor(kBossFightSkyColor);
 	}
@@ -199,6 +211,7 @@ void GameScene::Update() {
 		}
 
 		if (player_->ConsumeTeleportRequest()) {
+			Audio::GetInstance()->PlayWave(seTeleportHandle_, false, AudioVolume::kSeTeleport);
 			WorldTransform& wt = player_->GetWorldTransform();
 			const Vector3 destination = stage_->GetTeleportDestination();
 			wt.translation_.x = destination.x;
@@ -357,6 +370,27 @@ void GameScene::UpdateCameraZoom(bool touchedJumpPad) {
 	}
 }
 
+// BGMを切り替える（すでに同じBGMが流れていたら何もしない）
+void GameScene::PlayBgm(uint32_t soundHandle) {
+	if (hasBgm_ && currentBgmHandle_ == soundHandle) {
+		return;
+	}
+	StopBgm();
+	// BGMごとに音量が違う（音源の大きさに合わせて AudioVolume.h で調整）
+	const float volume = (soundHandle == bgmBossHandle_) ? AudioVolume::kBgmBoss : AudioVolume::kBgmStage;
+	bgmPlayHandle_ = Audio::GetInstance()->PlayWave(soundHandle, true, volume);
+	currentBgmHandle_ = soundHandle;
+	hasBgm_ = true;
+}
+
+// BGMを止める
+void GameScene::StopBgm() {
+	if (hasBgm_) {
+		Audio::GetInstance()->StopWave(bgmPlayHandle_);
+		hasBgm_ = false;
+	}
+}
+
 void GameScene::ChangePhase() {
 	switch (phase_) {
 	case Phase::kFadeIn:
@@ -412,21 +446,11 @@ void GameScene::AddParticle(const Particle::Parameter& param) {
 }
 
 // 攻撃ヒット時の演出（Particleを使用）
-void GameScene::CreateHitEffect(const Vector3& position) {
-	for (int i = 0; i < 5; ++i) {
-		Particle::Parameter param;
-		param.position = position;
+void GameScene::CreateHitEffect(const Vector3& position) { AddParticles(Particle::MakeHit(position)); }
 
-		float vx = (Rand01() - 0.5f) * 0.2f;
-		float vy = (Rand01() - 0.5f) * 0.2f;
-		param.velocity = {vx, vy, 0.0f};
-
-		param.startScale = {0.2f, 0.2f, 0.2f};
-		param.endScale = {0.0f, 0.0f, 0.0f};
-		param.startColor = {1.0f, 1.0f, 1.0f, 1.0f}; // 白
-		param.endColor = {1.0f, 0.8f, 0.2f, 0.0f};   // 黄色フェード
-		param.lifeTime = 10 + rand() % 5;
-
+// パーティクルをまとめてリストに追加する
+void GameScene::AddParticles(const std::vector<Particle::Parameter>& params) {
+	for (const Particle::Parameter& param : params) {
 		AddParticle(param);
 	}
 }
@@ -434,6 +458,11 @@ void GameScene::CreateHitEffect(const Vector3& position) {
 void GameScene::CreateGuardEffect(const Vector3& position) { guardEffects_.push_back(GuardEffect::Create(position)); }
 
 void GameScene::UpdateBossRoom() {
+	// ボスの撃破演出が始まったら、空を元の青空に戻す
+	if (boss_->IsDying()) {
+		skydome_->SetTargetColor(kNormalSkyColor);
+	}
+
 	const bool inBossRoom = stage_->IsInBossRoom(player_->GetWorldPosition().x);
 
 	if (inBossRoom != isInBossRoom_) {
@@ -448,109 +477,37 @@ void GameScene::UpdateBossRoom() {
 		isBossIntro_ = true;
 		cameraController_->StartBossIntro();
 
-		player_->HealFull(); // ★道中からボス部屋に入った瞬間だけ全快させる
+		// 道中のBGMを止めて、ボスの咆哮を鳴らす
+		StopBgm();
+		Audio::GetInstance()->PlayWave(seBossStartHandle_, false, AudioVolume::kSeBossStart);
 	}
 
 	// 演出が終わったら戦闘開始
 	if (isBossIntro_ && cameraController_->IsBossIntroFinished()) {
 		isBossIntro_ = false;
 		isBossFightStarted_ = true;
+
+		// ムービーが終わった時に、1回だけ全回復する
+		player_->HealFull();
+		Audio::GetInstance()->PlayWave(seHealHandle_, false, AudioVolume::kSeHeal);
+
+		// 戦闘開始でボスBGM
+		PlayBgm(bgmBossHandle_);
 	}
 }
 
 // プレイヤーの斬撃パーティクル
-void GameScene::CreateSlashParticles(const Vector3& position, bool isRightDirection) {
-	float dir = isRightDirection ? 1.0f : -1.0f;
-	for (int i = 0; i < 8; ++i) {
-		Particle::Parameter param;
-		param.position = position;
-		param.position.x += dir * 0.3f;
-
-		float angle = (Rand01() - 0.5f) * 1.2f;
-		float speed = 0.15f + Rand01() * 0.1f;
-		param.velocity = {dir * std::cos(angle) * speed, std::sin(angle) * speed, 0.0f};
-
-		param.startScale = {0.15f, 0.15f, 0.15f};
-		param.endScale = {0.0f, 0.0f, 0.0f};
-		param.startColor = {0.4f, 0.8f, 1.0f, 1.0f}; // 鮮やかな青光
-		param.endColor = {0.0f, 0.2f, 1.0f, 0.0f};
-		param.lifeTime = 8 + rand() % 6;
-
-		AddParticle(param);
-	}
-}
+void GameScene::CreateSlashParticles(const Vector3& position, bool isRightDirection) { AddParticles(Particle::MakeSlash(position, isRightDirection)); }
 
 // 通常攻撃ヒットパーティクル（白〜黄色の鋭い花火）
-void GameScene::CreateHitParticles(const Vector3& position) {
-	for (int i = 0; i < 10; ++i) {
-		Particle::Parameter param;
-		param.position = position;
-
-		float vx = (Rand01() - 0.5f) * 0.35f;
-		float vy = (Rand01() - 0.5f) * 0.35f;
-		param.velocity = {vx, vy, 0.0f};
-
-		param.startScale = {0.25f, 0.25f, 0.25f};
-		param.endScale = {0.0f, 0.0f, 0.0f};
-		param.startColor = {1.0f, 1.0f, 0.8f, 1.0f}; // 黄白色
-		param.endColor = {1.0f, 0.3f, 0.0f, 0.0f};   // オレンジフェード
-		param.lifeTime = 10 + rand() % 6;
-
-		AddParticle(param);
-	}
-}
+void GameScene::CreateHitParticles(const Vector3& position) { AddParticles(Particle::MakeHitSpark(position)); }
 
 // ボス攻撃ヒットパーティクル（少しだけスライムの体液が飛び散る）
-void GameScene::CreateBossHitParticles(const Vector3& position, Model* model, uint32_t textureHandle) {
-	for (int i = 0; i < 5; ++i) { // 数量は控えめ
-		Particle::Parameter param;
-		param.position = position;
+void GameScene::CreateBossHitParticles(const Vector3& position) { AddParticles(Particle::MakeBossHit(position, kDeathColorBoss)); }
 
-		float vx = (Rand01() - 0.5f) * 0.15f;
-		float vy = Rand01() * 0.2f + 0.05f; // やや上向き
-		param.velocity = {vx, vy, 0.0f};
-		param.accel = {0.0f, -0.012f, 0.0f}; // 重力で落ちる
-
-		param.startScale = {0.15f, 0.15f, 0.15f};
-		param.endScale = {0.02f, 0.02f, 0.02f};
-		param.lifeTime = 15 + rand() % 8;
-
-		param.customModel = model;
-		param.customTextureHandle = textureHandle;
-
-		AddParticle(param);
-	}
-}
-
-// スライム爆発パーティクル（敵・ボスの死亡処理で共有）
-void GameScene::CreateSlimeExplosion(const Vector3& position, Model* model, uint32_t textureHandle, float baseScale, int32_t particleCount) {
-	for (int i = 0; i < particleCount; ++i) {
-		Particle::Parameter param;
-		param.position = position;
-
-		// 全方向に勢いよく飛散（重力つき）
-		float vx = (Rand01() - 0.5f) * 0.4f;
-		float vy = (Rand01() - 0.2f) * 0.45f;
-		param.velocity = {vx, vy, 0.0f};
-		param.accel = {0.0f, -0.015f, 0.0f}; // 落下重力
-
-		// ランダム回転と回転速度
-		param.rotation = {0.0f, 0.0f, Rand01() * 6.28f};
-		param.angularVelocity = {0.0f, 0.0f, (Rand01() - 0.5f) * 0.3f};
-
-		// スライム特有の横潰れ・縦伸びのランダムスケール
-		float scaleRandX = baseScale * (0.6f + Rand01() * 0.8f);
-		float scaleRandY = baseScale * (0.6f + Rand01() * 0.8f);
-		param.startScale = {scaleRandX, scaleRandY, scaleRandX};
-		param.endScale = {0.0f, 0.0f, 0.0f};
-		param.lifeTime = 25 + rand() % 15;
-
-		// 引数で渡されたモデル・テクスチャ（スライムやボス）をセット
-		param.customModel = model;
-		param.customTextureHandle = textureHandle;
-
-		AddParticle(param);
-	}
+// 死亡パーティクル（敵・ボス・プレイヤーの死亡処理で共有）
+void GameScene::CreateDeathParticles(const Vector3& position, const Vector4& color, float baseScale, int32_t particleCount) {
+	AddParticles(Particle::MakeDeath(position, color, baseScale, particleCount, deathParticleModel_));
 }
 
 void GameScene::Draw() {

@@ -1,4 +1,5 @@
 #include "Boss.h"
+#include "AudioVolume.h"
 #include "GameScene.h"
 #include "MatrixFunction.h"
 #include "Player.h"
@@ -32,7 +33,7 @@ void Boss::Initialize(Model* model, Camera* camera, uint32_t textureHandle, cons
 	soundHandleLand_ = Audio::GetInstance()->LoadWave("Audio/SE_Boss_Land.mp3");
 	soundHandleFormChange_ = Audio::GetInstance()->LoadWave("Audio/SE_FormChange.mp3");
 	soundHandleCounter_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Counter.mp3");
-	soundHandleAttack_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Attack.mp3");
+	soundHandleAttack_ = Audio::GetInstance()->LoadWave("Audio/SE_Player_Attack_hit.mp3");
 
 	worldTransform_.Initialize();
 	worldTransform_.translation_ = position;
@@ -197,9 +198,9 @@ AABB Boss::GetAABB() {
 // ダメージを受ける（効果音・HPの減少・復活/撃破への切り替え）
 void Boss::TakeDamage(int32_t damage, bool isAttackUp) {
 	if (isAttackUp) {
-		Audio::GetInstance()->PlayWave(soundHandleCounter_, false, kSEVolume);
+		Audio::GetInstance()->PlayWave(soundHandleCounter_, false, AudioVolume::kSePlayerCounter);
 	} else {
-		Audio::GetInstance()->PlayWave(soundHandleAttack_, false, kSEVolume);
+		Audio::GetInstance()->PlayWave(soundHandleAttack_, false, AudioVolume::kSePlayerAttackHit);
 	}
 
 	hp_ -= damage;
@@ -267,7 +268,7 @@ void Boss::OnCollision(Player* player) {
 		gameScene_->CreateHitParticles(effectPos);
 
 		// 2. ボス被弾パーティクル（スライムの体液・粒が少しポロポロ飛散する）
-		gameScene_->CreateBossHitParticles(effectPos, model_, textureHandle_);
+		gameScene_->CreateBossHitParticles(effectPos);
 	}
 
 	CameraController::ShakeType shake = CameraController::ShakeType::kWeak;
@@ -388,7 +389,7 @@ void Boss::BehaviorAttackJumpUpdate() {
 			worldTransform_.translation_.y = groundY_;
 			velocity_ = {};
 
-			Audio::GetInstance()->PlayWave(soundHandleLand_, false, kSEVolume);
+			Audio::GetInstance()->PlayWave(soundHandleLand_, false, AudioVolume::kSeBossLand);
 
 			// シェイク
 			Shake(cameraController_, CameraController::ShakeType::kMedium);
@@ -404,7 +405,7 @@ void Boss::BehaviorReviveInitialize() {
 	velocity_ = {};
 	hp_ = kMaxHP;
 
-	Audio::GetInstance()->PlayWave(soundHandleFormChange_, false, kSEVolume);
+	Audio::GetInstance()->PlayWave(soundHandleFormChange_, false, AudioVolume::kSeFormChange);
 }
 
 // 復活演出の更新
@@ -439,10 +440,10 @@ void Boss::BehaviorDeathInitialize() {
 void Boss::BehaviorDeathUpdate() {
 	deathTimer_ += 1.0f / 60.0f;
 
-	// ★撃破開始直後の1フレーム目にボス（スライム）の大爆発パーティクルを生成
+	// 撃破開始直後の1フレーム目にボス（スライム）の大爆発パーティクルを生成
 	if (deathTimer_ <= 1.0f / 60.0f && gameScene_) {
-		// 共通関数を呼び出し（モデル: model_, テクスチャ: textureHandle_, スケール: 0.5f, 個数: 35）
-		gameScene_->CreateSlimeExplosion(GetWorldPosition(), model_, textureHandle_, 0.5f, 35);
+		// 共通関数を呼び出し
+		gameScene_->CreateDeathParticles(GetWorldPosition(), GameScene::kDeathColorBoss, 0.8f, 30);
 	}
 
 	// 撃破演出の進み具合
@@ -456,6 +457,10 @@ void Boss::BehaviorDeathUpdate() {
 	worldTransform_.scale_ = {(1.0f - t) * kModelScale, (1.0f - t) * kModelScale, (1.0f - t) * kModelScale};
 
 	if (deathTimer_ >= kDeathTime) {
+		if (!isDead_ && gameScene_) {
+			gameScene_->CreateDeathParticles(GetWorldPosition(), GameScene::kDeathColorBoss, 1.2f, 70);
+		}
+
 		isDead_ = true;
 
 		// シェイク

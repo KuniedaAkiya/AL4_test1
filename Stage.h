@@ -67,24 +67,28 @@ private:
 	static inline const float kTeleportEntranceOffset = 2.0f;
 
 	// ===== 棘・ジャンプ台 =====
-	// 棘の見た目の大きさ（45度回した小さな立方体＝ひし形に見せる）
-	static inline const float kSpikeScale = 0.6f;
-	// 棘の当たり判定（見た目より少し小さくして、ふちで当たりにくくする）
-	static inline const float kSpikeHitHalfWidth = 0.35f;
-	static inline const float kSpikeHitHeight = 0.55f;
-	// ジャンプ台の厚み（薄い板）と、当たり判定の半分の幅
+	static inline const int32_t kDrawColumnRange = 28;
+
+	// 棘の当たり判定（新しい 1.0x1.0x1.0 モデルに合わせて調整）
+	static inline const float kSpikeHitHalfWidth = 0.4f;
+	static inline const float kSpikeHitHeight = 0.8f;
+
+	// ジャンプ台の厚みと当たり判定の半分の幅
 	static inline const float kJumpPadHeight = 0.3f;
 	static inline const float kJumpPadHitHalfWidth = 0.5f;
 
 	// 当たり判定の箱（GenerateBlocks で作る）
 	std::vector<AABB> spikeAABBs_;
 	std::vector<AABB> jumpPadAABBs_;
-	// 見た目の色（ブロックのモデルに色をかけて使う）
-	ObjectColor spikeColor_;
-	ObjectColor jumpPadColor_;
 
 	MapChipField* mapChipField_ = nullptr;
 	Model* blockModel_ = nullptr;
 	uint32_t blockTextureHandle_ = 0;
+	Model* spikeModel_ = nullptr;
+	uint32_t spikeTextureHandle_ = 0;
+	Model* jumpPadModel_ = nullptr;
+	uint32_t jumpPadTextureHandle_ = 0;
+	Model* teleportModel_ = nullptr;
+	uint32_t teleportTextureHandle_ = 0;
 	std::vector<std::vector<WorldTransform*>> worldTransformBlocks_;
 };

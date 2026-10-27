@@ -1,4 +1,5 @@
 #include "Enemy.h"
+#include "AudioVolume.h"
 #include "GameScene.h"
 #include "MatrixFunction.h"
 #include "Player.h"
@@ -14,7 +15,6 @@ void Enemy::Initialize(Model* model, Camera* camera, uint32_t textureHandle, con
 	camera_ = camera;
 	enemyTextureHandle_ = textureHandle;
 
-	// ワールドトランスフォームの初期化
 	worldTransform_.Initialize();
 	worldTransform_.translation_ = position;
 	worldTransform_.rotation_.y = std::numbers::pi_v<float> * (3.0f / 2.0f);
@@ -23,6 +23,8 @@ void Enemy::Initialize(Model* model, Camera* camera, uint32_t textureHandle, con
 	isActivated_ = false;
 
 	UpdateWorldTransform();
+
+	soundHandleHit_ = Audio::GetInstance()->LoadWave("Audio/SE_Enemy_Hit_Damage.mp3");
 }
 
 void Enemy::Update() {
@@ -188,7 +190,7 @@ void Enemy::BehaviorWalkUpdate() {
 // デス演出状態の更新（爆発パーティクルを出して、すぐ消える）
 void Enemy::BehaviorDeathUpdate() {
 	if (gameScene_) {
-		gameScene_->CreateSlimeExplosion(GetWorldPosition(), model_, enemyTextureHandle_, 0.2f, 12);
+		gameScene_->CreateDeathParticles(GetWorldPosition(), GameScene::kDeathColorEnemy, 0.35f, 14);
 	}
 	isDead_ = true;
 }
@@ -213,11 +215,13 @@ void Enemy::OnCollision(const Player* player) {
 	}
 
 	if (player->IsAttack()) {
+		Audio::GetInstance()->PlayWave(soundHandleHit_, false, AudioVolume::kSeEnemyHit);
 		behaviorRequest_ = Behavior::kDeath;
 		isCollisionDisabled_ = true;
 
 		if (gameScene_) {
 			Vector3 effectPos = (GetWorldPosition() + player->GetWorldPosition()) / 2.0f;
+
 			gameScene_->CreateHitEffect(effectPos);
 			gameScene_->RequestHitStop(kHitStopFrames);
 			gameScene_->RequestCameraShake(GameScene::ShakeType::kWeak);

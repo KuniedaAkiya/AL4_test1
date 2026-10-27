@@ -1,4 +1,5 @@
 #include "Skydome.h"
+#include "MatrixFunction.h"
 #include <cassert>
 using namespace KamataEngine;
 
@@ -30,7 +31,11 @@ void Skydome::Update() {
 	currentColor_.w += (targetColor_.w - currentColor_.w) * kColorChangeRate;
 	objectColor_.SetColor(currentColor_);
 
-	// 行列を定数バッファに転送
+	// ゆっくり回す
+	skydomeWorldTransform_.rotation_.y += rotationSpeedY_;
+
+	// 行列を更新して定数バッファに転送
+	skydomeWorldTransform_.matWorld_ = MakeAffineMatrix(skydomeWorldTransform_.scale_, skydomeWorldTransform_.rotation_, skydomeWorldTransform_.translation_);
 	skydomeWorldTransform_.TransferMatrix();
 }
 

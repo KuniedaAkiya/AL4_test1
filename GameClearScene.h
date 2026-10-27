@@ -2,6 +2,7 @@
 #include "Fade.h"
 #include "IScene.h"
 #include "KamataEngine.h"
+#include "Skydome.h"
 
 using namespace KamataEngine;
 
@@ -23,6 +24,12 @@ private:
 	Phase phase_ = Phase::kFadeIn;
 	Fade* fade_ = nullptr;
 	Camera camera_{};
+
+	// ===== 背景（天球） =====
+	Model* skydomeModel_ = nullptr;
+	Skydome* skydome_ = nullptr;
+	static inline const Vector4 kSkyColor = {0.85f, 1.15f, 1.40f, 1.0f}; // 晴れた青空
+	static inline const float kSkyRotationSpeed = 0.0005f;               // 回る速さ（1フレームあたりのラジアン）
 
 	// クリアロゴ
 	Model* model_ = nullptr;

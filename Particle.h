@@ -1,5 +1,6 @@
 #pragma once
 #include "KamataEngine.h"
+#include <vector>
 
 using namespace KamataEngine;
 
@@ -22,6 +23,18 @@ public:
 		Model* customModel = nullptr;
 		uint32_t customTextureHandle = 0;
 	};
+
+	// ==== パーティクルの種類ごとのパラメータを作る（出す場所・色・数だけ渡す）====
+	// 攻撃ヒット時の小さな光（白→黄色）
+	static std::vector<Parameter> MakeHit(const Vector3& position);
+	// 通常攻撃ヒットの火花（黄白→オレンジ）
+	static std::vector<Parameter> MakeHitSpark(const Vector3& position);
+	// プレイヤーの斬撃の光（青）
+	static std::vector<Parameter> MakeSlash(const Vector3& position, bool isRightDirection);
+	// ボスに当たった時の、少しだけ飛び散る粒（color で染める。軽い粒モデルを使う）
+	static std::vector<Parameter> MakeBossHit(const Vector3& position, const Vector4& color);
+	// 死亡時の飛散（敵・ボス・プレイヤー共通。色・大きさ・個数だけ変える）
+	static std::vector<Parameter> MakeDeath(const Vector3& position, const Vector4& color, float baseScale, int32_t count, Model* model);
 
 	void Initialize(const Parameter& param);
 	void Update();
