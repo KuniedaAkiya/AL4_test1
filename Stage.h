@@ -3,6 +3,7 @@
 #include "KamataEngine.h"
 #include "MapChipField.h"
 #include "MatrixFunction.h"
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -76,6 +77,8 @@ private:
 	// ジャンプ台の厚みと当たり判定の半分の幅
 	static inline const float kJumpPadHeight = 0.3f;
 	static inline const float kJumpPadHitHalfWidth = 0.5f;
+	// ジャンプパッドの初期回転角（左向き: Z軸90度）
+	static inline const Vector3 kJumpPadRotation = {0.0f, std::numbers::pi_v<float> / 2.0f, 0.0f};
 
 	// 当たり判定の箱（GenerateBlocks で作る）
 	std::vector<AABB> spikeAABBs_;
