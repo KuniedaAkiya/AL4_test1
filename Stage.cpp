@@ -72,6 +72,10 @@ void Stage::GenerateBlocks() {
 				WorldTransform* worldTransform = new WorldTransform();
 				worldTransform->Initialize();
 				worldTransform->translation_ = center;
+
+				// 初期化パラメータの回転角を代入
+				worldTransform->rotation_ = kJumpPadRotation;
+
 				worldTransformBlocks_[i][j] = worldTransform;
 
 				AABB hit;
