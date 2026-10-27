@@ -51,7 +51,7 @@ void Stage::GenerateBlocks() {
 				worldTransform->translation_ = mapChipField_->GetMapChipPositionByIndex(j, i);
 				worldTransformBlocks_[i][j] = worldTransform;
 			} else if (type == MapChipType::kSpike) {
-				// 棘：45度回した小さな立方体（ひし形）を、マスの底に置く
+				// 棘：マスの底（bottom）から高さ kSpikeHitHeight 分の AABB を作成
 				const Vector3 center = mapChipField_->GetMapChipPositionByIndex(j, i);
 				const float bottom = center.y - MapChipField::kBlockHeight / 2.0f;
 
